@@ -1,0 +1,184 @@
+models:
+- name: DimCustomer
+  description: ''
+  meta:
+    surrogate_key: CustomerKey
+  columns:
+  - name: CustomerKey
+    description: ''
+    data_type: INT
+    meta:
+      nullable: false
+      unknown_member: -1
+      identity:
+        seed: 1
+        increment: 1
+  - name: GeographyKey
+    description: ''
+    data_type: INT
+    meta:
+      nullable: true
+      unknown_member: -1
+  - name: CustomerAlternateKey
+    description: ''
+    data_type: NVARCHAR(15)
+    meta:
+      nullable: false
+      unknown_member: 'Unknown'
+  - name: Title
+    description: ''
+    data_type: NVARCHAR(8)
+    meta:
+      nullable: true
+      unknown_member: 'Unknown'
+  - name: FirstName
+    description: ''
+    data_type: NVARCHAR(50)
+    meta:
+      nullable: true
+      unknown_member: 'Unknown'
+  - name: MiddleName
+    description: ''
+    data_type: NVARCHAR(50)
+    meta:
+      nullable: true
+      unknown_member: 'Unknown'
+  - name: LastName
+    description: ''
+    data_type: NVARCHAR(50)
+    meta:
+      nullable: true
+      unknown_member: 'Unknown'
+  - name: NameStyle
+    description: ''
+    data_type: BIT
+    meta:
+      nullable: true
+      unknown_member: 0
+  - name: BirthDate
+    description: ''
+    data_type: DATE
+    meta:
+      nullable: true
+      unknown_member: '1900-01-01'
+  - name: MaritalStatus
+    description: ''
+    data_type: NCHAR(1)
+    meta:
+      nullable: true
+      unknown_member: 'U'
+  - name: Suffix
+    description: ''
+    data_type: NVARCHAR(10)
+    meta:
+      nullable: true
+      unknown_member: 'Unknown'
+  - name: Gender
+    description: ''
+    data_type: NVARCHAR(1)
+    meta:
+      nullable: true
+      unknown_member: 'Unknown'
+  - name: EmailAddress
+    description: ''
+    data_type: NVARCHAR(50)
+    meta:
+      nullable: true
+      unknown_member: 'Unknown'
+  - name: YearlyIncome
+    description: ''
+    data_type: MONEY
+    meta:
+      nullable: true
+      unknown_member: -1
+  - name: TotalChildren
+    description: ''
+    data_type: TINYINT
+    meta:
+      nullable: true
+      unknown_member: 0
+  - name: NumberChildrenAtHome
+    description: ''
+    data_type: TINYINT
+    meta:
+      nullable: true
+      unknown_member: 0
+  - name: EnglishEducation
+    description: ''
+    data_type: NVARCHAR(40)
+    meta:
+      nullable: true
+      unknown_member: 'Unknown'
+  - name: SpanishEducation
+    description: ''
+    data_type: NVARCHAR(40)
+    meta:
+      nullable: true
+      unknown_member: 'Unknown'
+  - name: FrenchEducation
+    description: ''
+    data_type: NVARCHAR(40)
+    meta:
+      nullable: true
+      unknown_member: 'Unknown'
+  - name: EnglishOccupation
+    description: ''
+    data_type: NVARCHAR(100)
+    meta:
+      nullable: true
+      unknown_member: 'Unknown'
+  - name: SpanishOccupation
+    description: ''
+    data_type: NVARCHAR(100)
+    meta:
+      nullable: true
+      unknown_member: 'Unknown'
+  - name: FrenchOccupation
+    description: ''
+    data_type: NVARCHAR(100)
+    meta:
+      nullable: true
+      unknown_member: 'Unknown'
+  - name: HouseOwnerFlag
+    description: ''
+    data_type: NCHAR(1)
+    meta:
+      nullable: true
+      unknown_member: 'U'
+  - name: NumberCarsOwned
+    description: ''
+    data_type: TINYINT
+    meta:
+      nullable: true
+      unknown_member: 0
+  - name: AddressLine1
+    description: ''
+    data_type: NVARCHAR(120)
+    meta:
+      nullable: true
+      unknown_member: 'Unknown'
+  - name: AddressLine2
+    description: ''
+    data_type: NVARCHAR(120)
+    meta:
+      nullable: true
+      unknown_member: 'Unknown'
+  - name: Phone
+    description: ''
+    data_type: NVARCHAR(20)
+    meta:
+      nullable: true
+      unknown_member: 'Unknown'
+  - name: DateFirstPurchase
+    description: ''
+    data_type: DATE
+    meta:
+      nullable: true
+      unknown_member: '1900-01-01'
+  - name: CommuteDistance
+    description: ''
+    data_type: NVARCHAR(15)
+    meta:
+      nullable: true
+      unknown_member: 'Unknown'
+
