@@ -10,11 +10,10 @@ try:
 except Exception:
     yaml = None
 
-# ---------- YAML dumper that indents sequences under mappings (for models/columns) ----------
+# ---------- YAML dumper with proper list indentation ----------
 IndentDumper = None
 if yaml:
     class _IndentDumper(yaml.SafeDumper):
-        # Disable "indentless" sequences so list items are indented an extra level
         def increase_indent(self, flow=False, indentless=False):
             return super().increase_indent(flow, indentless=False)
     IndentDumper = _IndentDumper
@@ -24,16 +23,19 @@ DDL_CREATE_RE = re.compile(
     r"CREATE\s+TABLE\s+(?:\[(?P<schema>\w+)\]\.)?\[(?P<table>\w+)\]\s*\((?P<body>.*)\)\s*",
     re.IGNORECASE | re.DOTALL,
 )
-# Accept PRIMARY KEY with OR without an explicit CONSTRAINT name
+
+# Table-level PK (with or without explicit CONSTRAINT name)
 PRIMARY_KEY_RE = re.compile(
     r"(?:CONSTRAINT\s+\[\w+\]\s+)?PRIMARY\s+KEY(?:\s+CLUSTERED|\s+NONCLUSTERED)?\s*\((?P<cols>.*?)\)",
     re.IGNORECASE | re.DOTALL,
 )
+
 DEFAULT_FOR_RE = re.compile(
     r"ALTER\s+TABLE\s+(?:\[(?P<schema>\w+)\]\.)?\[(?P<table>\w+)\]\s+ADD\s+CONSTRAINT\s+\[\w+\]\s+DEFAULT\s*\((?P<expr>.*?)\)\s+FOR\s+\[(?P<col>\w+)\]",
     re.IGNORECASE | re.DOTALL,
 )
-#  NOT NULL,  or  [Id] INT NOT NULL PRIMARY KEY,
+
+# Column line (e.g.,  NOT NULL)
 COLUMN_LINE_RE = re.compile(
     r"""^\s*
         \[(?P<name>\w+)\]\s+
@@ -45,32 +47,46 @@ COLUMN_LINE_RE = re.compile(
     """,
     re.IGNORECASE | re.VERBOSE,
 )
+
 BRACKETED_COL_RE = re.compile(r"\[\s*(\w+)\s*\]")
+
+# Looks for an embedded table-level PK that may be attached to a column item
+EMBEDDED_PK_RE = re.compile(r"\bCONSTRAINT\b.*?\bPRIMARY\s+KEY\b.*", re.IGNORECASE | re.DOTALL)
 
 # ---------- Parsing ----------
 def split_columns_block(body: str) -> Tuple[List[str], List[str]]:
-    """Depth-aware split of the CREATE TABLE (...) body on top-level commas."""
-    items, buf, depth = [], [], 0
+    """Depth-aware split of the CREATE TABLE body on top-level commas.
+       Also splits out any embedded 'CONSTRAINT ... PRIMARY KEY' glued to the last column."""
+    raw_items, buf, depth = [], [], 0
     for ch in body:
         if ch == "(":
             depth += 1
         elif ch == ")":
             depth -= 1
         if ch == "," and depth == 0:
-            items.append("".join(buf).strip())
+            raw_items.append("".join(buf).strip())
             buf = []
         else:
             buf.append(ch)
     tail = "".join(buf).strip()
     if tail:
-        items.append(tail)
+        raw_items.append(tail)
 
     col_items, constraint_items = [], []
-    for it in items:
-        if re.match(r"^\s*\[", it):
-            col_items.append(it)
+    for it in raw_items:
+        if re.match(r"^\s*\[", it):  # starts like a column
+            m = EMBEDDED_PK_RE.search(it)
+            if m:
+                head = it[:m.start()].rstrip().rstrip(",")
+                tail = it[m.start():].strip()
+                if head:
+                    col_items.append(head)
+                if tail:
+                    constraint_items.append(tail)
+            else:
+                col_items.append(it.strip())
         else:
-            constraint_items.append(it)
+            constraint_items.append(it.strip())
     return col_items, constraint_items
 
 def parse_default_alters(sql: str) -> Dict[str, str]:
@@ -84,7 +100,7 @@ def parse_primary_key_from_constraints(constraints: List[str]) -> List[str]:
     return []
 
 def parse_columns(col_items: List[str]) -> Tuple[List[Dict[str, Any]], List[str]]:
-    """Return columns AND any inline single-column PKs (e.g., '... PRIMARY KEY')."""
+    """Return columns and any inline single-column PKs (e.g., '[Id] INT PRIMARY KEY')."""
     cols: List[Dict[str, Any]] = []
     inline_pks: List[str] = []
     for raw in col_items:
@@ -93,29 +109,26 @@ def parse_columns(col_items: List[str]) -> Tuple[List[Dict[str, Any]], List[str]
             continue
         name = m.group("name")
         dtype_raw = m.group("dtype").strip()
-        dtype_clean = re.sub(r"[\[\]]", "", dtype_raw)  # strip [] around type
+        dtype_clean = re.sub(r"[\[\]]", "", dtype_raw)
         rest = m.group("rest").strip()
 
-        # IDENTITY(seed, increment)
         ident = None
         m_ident = re.search(r"IDENTITY\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)", rest, re.IGNORECASE)
         if m_ident:
             ident = {"seed": int(m_ident.group(1)), "increment": int(m_ident.group(2))}
 
-        # Nullability
         nullable = True
         if re.search(r"\bNOT\s+NULL\b", rest, re.IGNORECASE):
             nullable = False
         elif re.search(r"\bNULL\b", rest, re.IGNORECASE):
             nullable = True
 
-        # Inline DEFAULT (supported but uncommon in SSMS CREATE scripts)
         inline_default = None
         m_def = re.search(r"\bDEFAULT\s+(\(?.*?\)?)\b", rest, re.IGNORECASE)
         if m_def:
             inline_default = m_def.group(1).strip()
 
-        # Inline PRIMARY KEY (single column)
+        # Inline column-level PRIMARY KEY
         if re.search(r"\bPRIMARY\s+KEY\b", rest, re.IGNORECASE):
             inline_pks.append(name)
 
@@ -143,14 +156,13 @@ def emit_stage_yaml(
         "models": [
             {
                 "name": table,
-                "description": "",     # left blank intentionally
+                "description": "",
                 "meta": {},
                 "columns": [],
             }
         ],
     }
 
-    # Stage files use meta.primary_key (array)
     if pk_cols:
         doc["models"][0]["meta"]["primary_key"] = pk_cols
 
@@ -165,7 +177,7 @@ def emit_stage_yaml(
         doc["models"][0]["columns"].append(
             {
                 "name": c["name"],
-                "description": "",          # blank by request
+                "description": "",
                 "data_type": c["data_type"],
                 "meta": meta,
             }
@@ -194,14 +206,9 @@ def main() -> int:
     ap.add_argument(
         "--pk", "--primary-key",
         dest="primary_key",
-        help="Comma-separated column list to force meta.primary_key when not in DDL (e.g. Code,Id,ItemId)",
+        help="Comma-separated list to force meta.primary_key (e.g. Code,Id,ItemId)",
     )
-    ap.add_argument(
-        "--version",
-        type=float,
-        default=2.0,
-        help="Schema YAML version number (default: 2.0)",
-    )
+    ap.add_argument("--version", type=float, default=2.0, help="Schema YAML version (default: 2.0)")
     args = ap.parse_args()
 
     sql = Path(args.sql_file).read_text(encoding="utf-8", errors="ignore")
@@ -211,26 +218,23 @@ def main() -> int:
         return 1
 
     table = m.group("table")
-    body = m.group("body")
+    body  = m.group("body")
 
     col_items, constraint_items = split_columns_block(body)
     columns, inline_pks = parse_columns(col_items)
-    pk_cols = parse_primary_key_from_constraints(constraint_items)
+    table_pks = parse_primary_key_from_constraints(constraint_items)
 
-    # Merge table-constraint PKs with any inline single-column PKs (preserve order, de-dupe)
-    seen = set()
-    merged_pks: List[str] = []
-    for col in (pk_cols + inline_pks):
+    # Merge (preserve order, de-dup)
+    seen, pk_cols = set(), []
+    for col in (table_pks + inline_pks):
         if col not in seen:
-            merged_pks.append(col)
-            seen.add(col)
+            pk_cols.append(col); seen.add(col)
 
-    # Allow manual override if none detected
-    if not merged_pks and args.primary_key:
-        merged_pks = [c.strip() for c in args.primary_key.split(",") if c.strip()]
+    if not pk_cols and args.primary_key:
+        pk_cols = [c.strip() for c in args.primary_key.split(",") if c.strip()]
 
     default_map = parse_default_alters(sql)
-    print(emit_stage_yaml(table, columns, merged_pks, default_map, version=args.version))
+    print(emit_stage_yaml(table, columns, pk_cols, default_map, version=args.version))
     return 0
 
 if __name__ == "__main__":
