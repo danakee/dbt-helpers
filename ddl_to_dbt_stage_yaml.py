@@ -10,6 +10,15 @@ try:
 except Exception:
     yaml = None
 
+# ---------- YAML dumper that indents sequences under mappings (for models/columns) ----------
+IndentDumper = None
+if yaml:
+    class _IndentDumper(yaml.SafeDumper):
+        # Disable "indentless" sequences so list items are indented an extra level
+        def increase_indent(self, flow=False, indentless=False):
+            return super().increase_indent(flow, indentless=False)
+    IndentDumper = _IndentDumper
+
 # ---------- Regexes ----------
 DDL_CREATE_RE = re.compile(
     r"CREATE\s+TABLE\s+(?:\[(?P<schema>\w+)\]\.)?\[(?P<table>\w+)\]\s*\((?P<body>.*)\)\s*",
@@ -24,7 +33,7 @@ DEFAULT_FOR_RE = re.compile(
     r"ALTER\s+TABLE\s+(?:\[(?P<schema>\w+)\]\.)?\[(?P<table>\w+)\]\s+ADD\s+CONSTRAINT\s+\[\w+\]\s+DEFAULT\s*\((?P<expr>.*?)\)\s+FOR\s+\[(?P<col>\w+)\]",
     re.IGNORECASE | re.DOTALL,
 )
-#  NOT NULL,  or  Col nvarchar(255) NULL,  or  [decimal](18, 2)
+#  NOT NULL,  or  [Id] INT NOT NULL PRIMARY KEY,
 COLUMN_LINE_RE = re.compile(
     r"""^\s*
         \[(?P<name>\w+)\]\s+
@@ -67,15 +76,17 @@ def split_columns_block(body: str) -> Tuple[List[str], List[str]]:
 def parse_default_alters(sql: str) -> Dict[str, str]:
     return {m.group("col"): m.group("expr").strip() for m in DEFAULT_FOR_RE.finditer(sql)}
 
-def parse_primary_key(constraints: List[str]) -> List[str]:
+def parse_primary_key_from_constraints(constraints: List[str]) -> List[str]:
     for c in constraints:
         m = PRIMARY_KEY_RE.search(c)
         if m:
             return BRACKETED_COL_RE.findall(m.group("cols"))
     return []
 
-def parse_columns(col_items: List[str]) -> List[Dict[str, Any]]:
+def parse_columns(col_items: List[str]) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """Return columns AND any inline single-column PKs (e.g., '... PRIMARY KEY')."""
     cols: List[Dict[str, Any]] = []
+    inline_pks: List[str] = []
     for raw in col_items:
         m = COLUMN_LINE_RE.match(raw)
         if not m:
@@ -104,6 +115,10 @@ def parse_columns(col_items: List[str]) -> List[Dict[str, Any]]:
         if m_def:
             inline_default = m_def.group(1).strip()
 
+        # Inline PRIMARY KEY (single column)
+        if re.search(r"\bPRIMARY\s+KEY\b", rest, re.IGNORECASE):
+            inline_pks.append(name)
+
         cols.append(
             {
                 "name": name,
@@ -113,7 +128,7 @@ def parse_columns(col_items: List[str]) -> List[Dict[str, Any]]:
                 "inline_default": inline_default,
             }
         )
-    return cols
+    return cols, inline_pks
 
 # ---------- YAML emission ----------
 def emit_stage_yaml(
@@ -128,21 +143,19 @@ def emit_stage_yaml(
         "models": [
             {
                 "name": table,
-                "description": "",     # leave blank for now
+                "description": "",     # left blank intentionally
                 "meta": {},
                 "columns": [],
             }
         ],
     }
 
-    # Stage files use meta.primary_key (array) instead of surrogate_key
+    # Stage files use meta.primary_key (array)
     if pk_cols:
         doc["models"][0]["meta"]["primary_key"] = pk_cols
 
     for c in columns:
-        meta: Dict[str, Any] = {
-            "nullable": bool(c["nullable"]),
-        }
+        meta: Dict[str, Any] = {"nullable": bool(c["nullable"])}
         if c.get("identity"):
             meta["identity"] = c["identity"]
         default_expr = default_map.get(c["name"]) or c.get("inline_default")
@@ -152,14 +165,22 @@ def emit_stage_yaml(
         doc["models"][0]["columns"].append(
             {
                 "name": c["name"],
-                "description": "",               # blank by request
+                "description": "",          # blank by request
                 "data_type": c["data_type"],
-                "meta": meta,                    # no unknown_member for Staging
+                "meta": meta,
             }
         )
 
     if yaml:
-        return yaml.safe_dump(doc, sort_keys=False)
+        return yaml.dump(
+            doc,
+            Dumper=IndentDumper,
+            sort_keys=False,
+            default_flow_style=False,
+            indent=2,
+            allow_unicode=True,
+            width=120,
+        )
     else:
         import json
         return json.dumps(doc, indent=2)
@@ -191,16 +212,25 @@ def main() -> int:
 
     table = m.group("table")
     body = m.group("body")
-    col_items, constraint_items = split_columns_block(body)
-    columns = parse_columns(col_items)
-    pk_cols = parse_primary_key(constraint_items)
 
-    # Allow manual override for stage PKs (common if DDL doesn't declare PK)
-    if not pk_cols and args.primary_key:
-        pk_cols = [c.strip() for c in args.primary_key.split(",") if c.strip()]
+    col_items, constraint_items = split_columns_block(body)
+    columns, inline_pks = parse_columns(col_items)
+    pk_cols = parse_primary_key_from_constraints(constraint_items)
+
+    # Merge table-constraint PKs with any inline single-column PKs (preserve order, de-dupe)
+    seen = set()
+    merged_pks: List[str] = []
+    for col in (pk_cols + inline_pks):
+        if col not in seen:
+            merged_pks.append(col)
+            seen.add(col)
+
+    # Allow manual override if none detected
+    if not merged_pks and args.primary_key:
+        merged_pks = [c.strip() for c in args.primary_key.split(",") if c.strip()]
 
     default_map = parse_default_alters(sql)
-    print(emit_stage_yaml(table, columns, pk_cols, default_map, version=args.version))
+    print(emit_stage_yaml(table, columns, merged_pks, default_map, version=args.version))
     return 0
 
 if __name__ == "__main__":
