@@ -10,31 +10,39 @@ try:
 except Exception:
     yaml = None
 
-# ---------- YAML dumper with proper list indentation ----------
+# ---------- YAML helpers (flow-style lists for primary_key) ----------
+class FlowList(list):
+    """Marker type to force flow-style [a, b, c] for this list in YAML."""
+    pass
+
+def _represent_flow_list(dumper, data):
+    return dumper.represent_sequence('tag:yaml.org,2002:seq', list(data), flow_style=True)
+
+# Pretty list indentation (list items under models/columns indented properly)
 IndentDumper = None
 if yaml:
     class _IndentDumper(yaml.SafeDumper):
         def increase_indent(self, flow=False, indentless=False):
             return super().increase_indent(flow, indentless=False)
     IndentDumper = _IndentDumper
+    # Register representers for SafeDumper AND our IndentDumper subclass
+    yaml.add_representer(FlowList, _represent_flow_list, Dumper=yaml.SafeDumper)
+    yaml.add_representer(FlowList, _represent_flow_list, Dumper=IndentDumper)
 
 # ---------- Regexes ----------
 DDL_CREATE_RE = re.compile(
     r"CREATE\s+TABLE\s+(?:\[(?P<schema>\w+)\]\.)?\[(?P<table>\w+)\]\s*\((?P<body>.*)\)\s*",
     re.IGNORECASE | re.DOTALL,
 )
-
 # Table-level PK (with or without explicit CONSTRAINT name)
 PRIMARY_KEY_RE = re.compile(
     r"(?:CONSTRAINT\s+\[\w+\]\s+)?PRIMARY\s+KEY(?:\s+CLUSTERED|\s+NONCLUSTERED)?\s*\((?P<cols>.*?)\)",
     re.IGNORECASE | re.DOTALL,
 )
-
 DEFAULT_FOR_RE = re.compile(
     r"ALTER\s+TABLE\s+(?:\[(?P<schema>\w+)\]\.)?\[(?P<table>\w+)\]\s+ADD\s+CONSTRAINT\s+\[\w+\]\s+DEFAULT\s*\((?P<expr>.*?)\)\s+FOR\s+\[(?P<col>\w+)\]",
     re.IGNORECASE | re.DOTALL,
 )
-
 # Column line (e.g.,  NOT NULL)
 COLUMN_LINE_RE = re.compile(
     r"""^\s*
@@ -47,9 +55,7 @@ COLUMN_LINE_RE = re.compile(
     """,
     re.IGNORECASE | re.VERBOSE,
 )
-
 BRACKETED_COL_RE = re.compile(r"\[\s*(\w+)\s*\]")
-
 # Looks for an embedded table-level PK that may be attached to a column item
 EMBEDDED_PK_RE = re.compile(r"\bCONSTRAINT\b.*?\bPRIMARY\s+KEY\b.*", re.IGNORECASE | re.DOTALL)
 
@@ -157,14 +163,13 @@ def emit_stage_yaml(
             {
                 "name": table,
                 "description": "",
-                "meta": {},
+                "meta": {
+                    "primary_key": FlowList(pk_cols or []),  # inline list on the same line
+                },
                 "columns": [],
             }
         ],
     }
-
-    if pk_cols:
-        doc["models"][0]["meta"]["primary_key"] = pk_cols
 
     for c in columns:
         meta: Dict[str, Any] = {"nullable": bool(c["nullable"])}
@@ -191,7 +196,7 @@ def emit_stage_yaml(
             default_flow_style=False,
             indent=2,
             allow_unicode=True,
-            width=120,
+            width=4096,  # keep flow lists on one line
         )
     else:
         import json
@@ -206,7 +211,7 @@ def main() -> int:
     ap.add_argument(
         "--pk", "--primary-key",
         dest="primary_key",
-        help="Comma-separated list to force meta.primary_key (e.g. Code,Id,ItemId)",
+        help="Comma-separated list to set meta.primary_key (e.g. Code,Id,ItemId)",
     )
     ap.add_argument("--version", type=float, default=2.0, help="Schema YAML version (default: 2.0)")
     args = ap.parse_args()
@@ -230,7 +235,8 @@ def main() -> int:
         if col not in seen:
             pk_cols.append(col); seen.add(col)
 
-    if not pk_cols and args.primary_key:
+    if args.primary_key:
+        # Override/force with CLI
         pk_cols = [c.strip() for c in args.primary_key.split(",") if c.strip()]
 
     default_map = parse_default_alters(sql)

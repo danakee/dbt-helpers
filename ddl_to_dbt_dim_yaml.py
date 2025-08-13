@@ -10,24 +10,33 @@ try:
 except Exception:
     yaml = None
 
-# ---------- Single-quoted scalar support (for unknown_member only) ----------
+# ---------- YAML helpers (single-quote strings + flow-style lists) ----------
 class SingleQuoted(str):
+    """Marker type to force single-quoted style for this string in YAML."""
     pass
 
-if yaml:
-    def _represent_single_quoted(dumper, data):
-        return dumper.represent_scalar('tag:yaml.org,2002:str', str(data), style="'")
-    yaml.add_representer(SingleQuoted, _represent_single_quoted)
-    yaml.add_representer(SingleQuoted, _represent_single_quoted, Dumper=yaml.SafeDumper)
+def _represent_single_quoted(dumper, data):
+    return dumper.represent_scalar('tag:yaml.org,2002:str', str(data), style="'")
 
-# Pretty list indentation (so list items under models/columns are indented)
+class FlowList(list):
+    """Marker type to force flow-style [a, b, c] for this list in YAML."""
+    pass
+
+def _represent_flow_list(dumper, data):
+    return dumper.represent_sequence('tag:yaml.org,2002:seq', list(data), flow_style=True)
+
+# Pretty list indentation (list items under models/columns indented properly)
 IndentDumper = None
 if yaml:
     class _IndentDumper(yaml.SafeDumper):
         def increase_indent(self, flow=False, indentless=False):
-            # force lists to indent one level under their mapping keys
             return super().increase_indent(flow, indentless=False)
     IndentDumper = _IndentDumper
+    # Register representers for SafeDumper AND our IndentDumper subclass
+    yaml.add_representer(SingleQuoted, _represent_single_quoted, Dumper=yaml.SafeDumper)
+    yaml.add_representer(FlowList, _represent_flow_list, Dumper=yaml.SafeDumper)
+    yaml.add_representer(SingleQuoted, _represent_single_quoted, Dumper=IndentDumper)
+    yaml.add_representer(FlowList, _represent_flow_list, Dumper=IndentDumper)
 
 # ---------- Helpers ----------
 def canonical_base_type(dtype: str) -> str:
@@ -67,10 +76,9 @@ def unknown_for_dtype(dtype: str) -> Any:
 
 # ---------- Regexes ----------
 DDL_CREATE_RE = re.compile(
-    r"CREATE\s+TABLE\s+(?:\[(?P<schema>\w+)\]\.)?\[(?P<table>\w+)\]\s*\((?P<body>.*)\)\s*",
+    r"CREATE\s+TABLE\s+(?:\[(?P<schema>\w+)\]\.)?\[(?P<table>\w+)\]\s*\((?P<body>.*)\)\*?",
     re.IGNORECASE | re.DOTALL,
 )
-# Table-level PK / UNIQUE (with or without CONSTRAINT name)
 PRIMARY_KEY_RE = re.compile(
     r"(?:CONSTRAINT\s+\[\w+\]\s+)?PRIMARY\s+KEY(?:\s+CLUSTERED|\s+NONCLUSTERED)?\s*\((?P<cols>.*?)\)",
     re.IGNORECASE | re.DOTALL,
@@ -79,7 +87,6 @@ UNIQUE_CONSTRAINT_RE = re.compile(
     r"(?:CONSTRAINT\s+\[\w+\]\s+)?UNIQUE(?:\s+CLUSTERED|\s+NONCLUSTERED)?\s*\((?P<cols>.*?)\)",
     re.IGNORECASE | re.DOTALL,
 )
-# CREATE UNIQUE INDEX outside CREATE TABLE
 UNIQUE_INDEX_RE = re.compile(
     r"CREATE\s+UNIQUE\s+(?:CLUSTERED|NONCLUSTERED)?\s+INDEX\s+\[\w+\]\s+ON\s+(?:\[(?P<schema>\w+)\]\.)?\[(?P<table>\w+)\]\s*\((?P<cols>.*?)\)",
     re.IGNORECASE | re.DOTALL,
@@ -100,7 +107,6 @@ COLUMN_LINE_RE = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 BRACKETED_COL_RE = re.compile(r"\[\s*(\w+)\s*\]")
-# If the last column line contains a table-level constraint block (no trailing comma)
 EMBEDDED_TBL_CONSTRAINT_RE = re.compile(
     r"\bCONSTRAINT\b.*?(?:\bPRIMARY\s+KEY\b|\bUNIQUE\b).*",
     re.IGNORECASE | re.DOTALL,
@@ -108,7 +114,6 @@ EMBEDDED_TBL_CONSTRAINT_RE = re.compile(
 
 # ---------- Parsing ----------
 def split_columns_block(body: str) -> Tuple[List[str], List[str]]:
-    """Depth-aware split of CREATE TABLE body; also pull off embedded table-level constraints."""
     raw_items, buf, depth = [], [], 0
     for ch in body:
         if ch == "(":
@@ -145,12 +150,10 @@ def parse_default_alters(sql: str) -> Dict[str, str]:
     return {m.group("col"): m.group("expr").strip() for m in DEFAULT_FOR_RE.finditer(sql)}
 
 def parse_primary_key(constraints: List[str], col_items: List[str]) -> List[str]:
-    # table-level PK
     for c in constraints:
         m = PRIMARY_KEY_RE.search(c)
         if m:
             return BRACKETED_COL_RE.findall(m.group("cols"))
-    # inline single-column PK
     pks_inline = []
     for raw in col_items:
         if re.search(r"\bPRIMARY\s+KEY\b", raw, re.IGNORECASE):
@@ -160,14 +163,12 @@ def parse_primary_key(constraints: List[str], col_items: List[str]) -> List[str]
     return pks_inline
 
 def parse_unique_business_key(sql: str, constraints: List[str], schema: str, table: str) -> List[str]:
-    # UNIQUE constraint inside CREATE TABLE
     for c in constraints:
         m = UNIQUE_CONSTRAINT_RE.search(c)
         if m:
             cols = BRACKETED_COL_RE.findall(m.group("cols"))
             if cols:
                 return cols
-    # CREATE UNIQUE INDEX outside (must match same table)
     for m in UNIQUE_INDEX_RE.finditer(sql):
         sch = m.group("schema") or "dbo"
         tbl = m.group("table")
@@ -229,8 +230,8 @@ def emit_dim_yaml(
                 "name": table,
                 "description": "",
                 "meta": {
-                    "surrogate_key": surrogate_key or "",     # always present
-                    "business_key": business_key_cols or [],  # always present
+                    "surrogate_key": surrogate_key or "",              # always present
+                    "business_key": FlowList(business_key_cols or []), # inline list
                 },
                 "columns": [],
             }
@@ -265,7 +266,7 @@ def emit_dim_yaml(
             default_flow_style=False,
             indent=2,
             allow_unicode=True,
-            width=120,
+            width=4096,  # keep flow lists on one line
         )
     else:
         import json
@@ -292,15 +293,10 @@ def main() -> int:
 
     col_items, constraint_items = split_columns_block(body)
     columns = parse_columns(col_items)
-
-    # PK detection (inline or table-level)
     pk_cols = parse_primary_key(constraint_items, col_items)
     inferred_surrogate = pk_cols[0] if len(pk_cols) == 1 else None
-
-    # Business key inference from UNIQUE constraint/index
     inferred_bk = parse_unique_business_key(sql, constraint_items, schema, table)
 
-    # Apply CLI overrides (and ensure placeholders exist)
     surrogate_key = (args.surrogate_key.strip() if args.surrogate_key else inferred_surrogate) or ""
     business_key_cols = (
         [c.strip() for c in args.business_key.split(",") if c.strip()]
