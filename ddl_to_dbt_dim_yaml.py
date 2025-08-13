@@ -10,7 +10,7 @@ try:
 except Exception:
     yaml = None
 
-# ---------- Single-quoted scalar support (only for unknown_member) ----------
+# ---------- Single-quoted scalar support (for unknown_member only) ----------
 class SingleQuoted(str):
     pass
 
@@ -25,6 +25,7 @@ IndentDumper = None
 if yaml:
     class _IndentDumper(yaml.SafeDumper):
         def increase_indent(self, flow=False, indentless=False):
+            # force lists to indent one level under their mapping keys
             return super().increase_indent(flow, indentless=False)
     IndentDumper = _IndentDumper
 
@@ -43,7 +44,7 @@ UNKNOWN_BY_TYPE: Dict[str, Any] = {
     "TINYINT": 0, "SMALLINT": -1, "INT": -1, "BIGINT": -1,
     "DECIMAL": -1, "NUMERIC": -1, "FLOAT": -1, "REAL": -1,
     "MONEY": -1, "SMALLMONEY": -1, "BIT": 0,
-    # non-numerics (will be single-quoted in YAML)
+    # non-numerics (will be single-quoted)
     "NVARCHAR": "Unknown", "VARCHAR": "Unknown",
     "NCHAR": "U", "CHAR": "U",
     "TEXT": "Unknown", "NTEXT": "Unknown",
@@ -69,7 +70,7 @@ DDL_CREATE_RE = re.compile(
     r"CREATE\s+TABLE\s+(?:\[(?P<schema>\w+)\]\.)?\[(?P<table>\w+)\]\s*\((?P<body>.*)\)\s*",
     re.IGNORECASE | re.DOTALL,
 )
-# Table-level PK and UNIQUE (inside CREATE TABLE), with/without CONSTRAINT name
+# Table-level PK / UNIQUE (with or without CONSTRAINT name)
 PRIMARY_KEY_RE = re.compile(
     r"(?:CONSTRAINT\s+\[\w+\]\s+)?PRIMARY\s+KEY(?:\s+CLUSTERED|\s+NONCLUSTERED)?\s*\((?P<cols>.*?)\)",
     re.IGNORECASE | re.DOTALL,
@@ -99,12 +100,15 @@ COLUMN_LINE_RE = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 BRACKETED_COL_RE = re.compile(r"\[\s*(\w+)\s*\]")
-# If the last column line includes a table-level constraint block with no comma
-EMBEDDED_TBL_CONSTRAINT_RE = re.compile(r"\bCONSTRAINT\b.*?(?:\bPRIMARY\s+KEY\b|\bUNIQUE\b).*", re.IGNORECASE | re.DOTALL)
+# If the last column line contains a table-level constraint block (no trailing comma)
+EMBEDDED_TBL_CONSTRAINT_RE = re.compile(
+    r"\bCONSTRAINT\b.*?(?:\bPRIMARY\s+KEY\b|\bUNIQUE\b).*",
+    re.IGNORECASE | re.DOTALL,
+)
 
 # ---------- Parsing ----------
 def split_columns_block(body: str) -> Tuple[List[str], List[str]]:
-    """Depth-aware split of CREATE TABLE body; also split out any embedded table-level constraints."""
+    """Depth-aware split of CREATE TABLE body; also pull off embedded table-level constraints."""
     raw_items, buf, depth = [], [], 0
     for ch in body:
         if ch == "(":
@@ -163,7 +167,7 @@ def parse_unique_business_key(sql: str, constraints: List[str], schema: str, tab
             cols = BRACKETED_COL_RE.findall(m.group("cols"))
             if cols:
                 return cols
-    # CREATE UNIQUE INDEX outside (ensure it's for this table)
+    # CREATE UNIQUE INDEX outside (must match same table)
     for m in UNIQUE_INDEX_RE.finditer(sql):
         sch = m.group("schema") or "dbo"
         tbl = m.group("table")
@@ -225,8 +229,8 @@ def emit_dim_yaml(
                 "name": table,
                 "description": "",
                 "meta": {
-                    "business_key": business_key_cols or [],
-                    "surrogate_key": surrogate_key or "",  # always present (blank if unknown)
+                    "surrogate_key": surrogate_key or "",     # always present
+                    "business_key": business_key_cols or [],  # always present
                 },
                 "columns": [],
             }
@@ -288,20 +292,20 @@ def main() -> int:
 
     col_items, constraint_items = split_columns_block(body)
     columns = parse_columns(col_items)
-    pk_cols = parse_primary_key(constraint_items, col_items)
 
-    # Surrogate key heuristic: single-column PK (typical for IDENTITY key)
+    # PK detection (inline or table-level)
+    pk_cols = parse_primary_key(constraint_items, col_items)
     inferred_surrogate = pk_cols[0] if len(pk_cols) == 1 else None
 
-    # Business key: infer from UNIQUE constraint/index; allow CLI override
+    # Business key inference from UNIQUE constraint/index
     inferred_bk = parse_unique_business_key(sql, constraint_items, schema, table)
-    if args.business_key:
-        business_key_cols = [c.strip() for c in args.business_key.split(",") if c.strip()]
-    else:
-        business_key_cols = inferred_bk
 
-    # Surrogate key override (if provided)
-    surrogate_key = args.surrogate_key.strip() if args.surrogate_key else inferred_surrogate
+    # Apply CLI overrides (and ensure placeholders exist)
+    surrogate_key = (args.surrogate_key.strip() if args.surrogate_key else inferred_surrogate) or ""
+    business_key_cols = (
+        [c.strip() for c in args.business_key.split(",") if c.strip()]
+        if args.business_key else inferred_bk or []
+    )
 
     default_map = parse_default_alters(sql)
     print(emit_dim_yaml(table, columns, surrogate_key, business_key_cols, default_map))
