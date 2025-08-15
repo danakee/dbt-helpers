@@ -1,11 +1,15 @@
 <#
   invoke-dbt.ps1
-  - Normal mode: forwards everything after the script to dbt unchanged
+  - Normal mode: forwards everything after the script to dbt unchanged (e.g., --version, run, test)
   - Drop mode (-DropModels): resolves models (explicit + selectors) and runs drop_model_tables
 #>
 
-[CmdletBinding(PositionalBinding = $false)]
+[CmdletBinding()]
 param(
+  # ---- Catch-all: EVERYTHING not bound to a named param goes here and is passed to dbt ----
+  [Parameter(ValueFromRemainingArguments = $true, Position = 0)]
+  [string[]] $DbtArgs,
+
   # ---- Ad-hoc drop mode (opt-in) ----
   [switch]   $DropModels,                # trigger run-operation path
   [string[]] $Models,                    # explicit model names (comma/newline/array ok)
@@ -16,11 +20,6 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-
-# ---- capture raw/remaining args exactly as typed (keeps --version, --select, etc.) ----
-# Example: .\invoke-dbt.ps1 --version            -> $DbtArgs = @('--version')
-#          .\invoke-dbt.ps1 run --full-refresh   -> $DbtArgs = @('run','--full-refresh')
-$DbtArgs = @($MyInvocation.UnboundArguments)
 
 # ---- Require an activated virtual environment (same as your original script) ----
 if (-not (Test-Path Env:VIRTUAL_ENV)) {
@@ -38,11 +37,11 @@ if ($DropModels.IsPresent) {
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 
 # ---- Version sniffing (matches your script) ----
-$python_version       = (python --version 2>&1).ToString().Split()[1]
-$dbt_fabric_version   = (pip show dbt-fabric 2>$null   | Select-String -Pattern "Version:").ToString().Split()[-1]
-if (-not $dbt_fabric_version)   { $dbt_fabric_version   = "Not installed" }
-$dbt_sqlserver_version= (pip show dbt-sqlserver 2>$null| Select-String -Pattern "Version:").ToString().Split()[-1]
-if (-not $dbt_sqlserver_version){ $dbt_sqlserver_version= "Not installed" }
+$python_version        = (python --version 2>&1).ToString().Split()[1]
+$dbt_fabric_version    = (pip show dbt-fabric 2>$null   | Select-String -Pattern "Version:").ToString().Split()[-1]
+if (-not $dbt_fabric_version)    { $dbt_fabric_version    = "Not installed" }
+$dbt_sqlserver_version = (pip show dbt-sqlserver 2>$null | Select-String -Pattern "Version:").ToString().Split()[-1]
+if (-not $dbt_sqlserver_version) { $dbt_sqlserver_version = "Not installed" }
 
 # ---- Env vars for banner/debug ----
 $env:DBT_COMMAND_LINE         = $full_command
@@ -143,7 +142,5 @@ finally {
   Remove-Item Env:DBT_PYTHON_VERSION       -ErrorAction SilentlyContinue
   Remove-Item Env:DBT_FABRIC_VERSION       -ErrorAction SilentlyContinue
   Remove-Item Env:DBT_SQLSERVER_VERSION    -ErrorAction SilentlyContinue
-  Remove-Item Env:DBT_EXECUTION_TIMESTAMP  -ErrorAction SilentlyContinue
-  Remove-Item Env:PYTHONIOENCODING         -ErrorAction SilentlyContinue
-  Remove-Item Env:ALLOW_TABLE_DROP         -ErrorAction SilentlyContinue
+  Remove-Item Env:DBT_EXECUTION_TIMESTAMP  -ErrorAction
 }
