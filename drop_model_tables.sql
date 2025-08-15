@@ -5,8 +5,7 @@
 --
 
 {% macro drop_model_tables(models=[], package_name=None, confirm=False) %}
-
-    {# Safety gates: require env var and explicit confirm, and typically only in prod #}
+    {# --- Safety gates --- #}
     {% if env_var('ALLOW_TABLE_DROP', '0') != '1' %}
         {{ log("Refusing to drop tables: ALLOW_TABLE_DROP env var not set to '1'.", info=True) }}
         {% do return(None) %}
@@ -17,41 +16,64 @@
         {% do return(None) %}
     {% endif %}
 
-    {% set dropped = [] %}
+    {% set dropped   = [] %}
+    {% set not_found = [] %}
 
     {% for model_name in models %}
-        {# Find the node by name (optionally package) #}
-        {% set candidates = graph.nodes.values()
+        {# --- Resolve the model node --- #}
+        {% set nodes = graph.nodes.values()
             | selectattr('resource_type', 'equalto', 'model')
             | selectattr('name', 'equalto', model_name)
             | list %}
         {% if package_name %}
-            {% set candidates = candidates | selectattr('package_name', 'equalto', package_name) | list %}
+            {% set nodes = nodes | selectattr('package_name', 'equalto', package_name) | list %}
         {% endif %}
-
-        {% if candidates | length == 0 %}
+        {% if nodes | length == 0 %}
             {{ log("Model not found: " ~ model_name, info=True) }}
             {% continue %}
         {% endif %}
-        {% set node = candidates[0] %}
+        {% set node = nodes[0] %}
 
-        {# Resolve schema & identifier the way dbt will materialize it #}
+        {# --- Resolve final database/schema/identifier as dbt would --- #}
         {% set identifier = node.config.alias if node.config.alias else node.name %}
-        {% set schema_ = node.config.schema if node.config.schema else target.schema %}
+        {% set schema_    = node.config.schema if node.config.schema else target.schema %}
+        {% set database_  = node.config.database if node.config.database else target.database %}
 
-        {# Drop if exists #}
-        {% set sql %}
-        IF OBJECT_ID(N'{{ schema_ }}.{{ identifier }}', 'U') IS NOT NULL
-        BEGIN
-            DROP TABLE {{ adapter.quote(schema_) }}.{{ adapter.quote(identifier) }};
-        END
+        {# Quoted pieces and FQN for messages --- #}
+        {% set qq_db     = adapter.quote(database_) %}
+        {% set qq_schema = adapter.quote(schema_) %}
+        {% set qq_ident  = adapter.quote(identifier) %}
+        {% set fqn = qq_db ~ "." ~ qq_schema ~ "." ~ qq_ident %}
+
+        {# --- Existence check using three-part naming (works cross-database) --- #}
+        {% set exists_sql %}
+        SELECT 1
+        FROM {{ qq_db }}.sys.tables t
+        JOIN {{ qq_db }}.sys.schemas s ON s.schema_id = t.schema_id
+        WHERE t.name = N'{{ identifier }}' AND s.name = N'{{ schema_ }}';
         {% endset %}
-        {{ log("Dropping " ~ schema_ ~ "." ~ identifier, info=True) }}
-        {% do run_query(sql) %}
-        {% do dropped.append(schema_ ~ "." ~ identifier) %}
+        {% set rs = run_query(exists_sql) %}
+        {% set exists = (rs is not none) and (rs.rows | length) > 0 %}
+
+        {% if exists %}
+            {# --- Drop the fully-qualified table --- #}
+            {% set drop_sql %}
+            DROP TABLE {{ fqn }};
+            {% endset %}
+            {{ log("Dropping " ~ fqn, info=True) }}
+            {% do run_query(drop_sql) %}
+            {% do dropped.append(fqn) %}
+        {% else %}
+            {{ log("Not found (no action): " ~ fqn, info=True) }}
+            {% do not_found.append(fqn) %}
+        {% endif %}
     {% endfor %}
 
-    {{ log("Dropped tables: " ~ (dropped | join(", ")), info=True) }}
-
+    {# --- Summaries --- #}
+    {% if dropped | length > 0 %}
+        {{ log("Dropped: " ~ (dropped | join(", ")), info=True) }}
+    {% endif %}
+    {% if not_found | length > 0 %}
+        {{ log("Not found: " ~ (not_found | join(", ")), info=True) }}
+    {% endif %}
 {% endmacro %}
-
