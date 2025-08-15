@@ -1,33 +1,34 @@
 <# 
   invoke-dbt.ps1
-  ----------------
-  - Shows environment/banner info (Python/dbt adapter versions, timestamp, etc.)
-  - Requires an already-activated venv
-  - Normal path: forwards all arguments to `dbt` unchanged
-  - Optional path (-DropModels): resolves models from explicit names and/or dbt selectors,
-    then calls `dbt run-operation drop_model_tables` with proper JSON args.
+  - Normal mode: forwards anything after the script to dbt (e.g., run, test, seed…)
+  - Drop mode (-DropModels): resolves models (explicit + selectors) and runs the drop macro
 #>
 
 [CmdletBinding()]
 param(
-  [switch]   $DropModels,                # trigger the run-operation path
+  [switch]   $DropModels,                # trigger run-operation path
   [string[]] $Models,                    # explicit model names (comma/newline/array ok)
   [string[]] $Selectors,                 # dbt selectors, e.g. 'tag:dim', 'path:models/mart'
   [string[]] $Excludes,                  # dbt --exclude selectors
-  [string]   $PackageName = "",          # optional; empty string -> macro won't filter by package
-  [switch]   $ConfirmDrop                # must be present to actually drop; otherwise dry-run
+  [string]   $PackageName = "",          # optional; empty -> macro won't filter by package
+  [switch]   $ConfirmDrop,               # must be present to actually drop; otherwise dry-run
+
+  # ---- Everything else after the script name goes to dbt unchanged ----
+  [Parameter(ValueFromRemainingArguments=$true)]
+  [string[]] $DbtArgs
 )
 
-# ---- Require an activated virtual environment (same as your script) ----
+$ErrorActionPreference = 'Stop'
+
+# ---- Require an activated virtual environment ----
 if (-not (Test-Path Env:VIRTUAL_ENV)) {
   Write-Host "Error: No virtual environment is activated. Please activate your environment first." -ForegroundColor Red
   exit 1
 }
 
-# ---- Build a banner-friendly "command" string for env + logs ----
-$full_command = "dbt $args"
+# ---- Build banner-friendly command string ----
+$full_command = "dbt " + (($DbtArgs | ForEach-Object { $_ }) -join ' ')
 if ($DropModels.IsPresent) {
-  # This will be replaced later with the exact run-operation + JSON we emit.
   $full_command = "dbt run-operation drop_model_tables (pending selector expansion)"
 }
 
@@ -36,20 +37,18 @@ $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 
 # ---- Version sniffing ----
 $python_version = (python --version 2>&1).ToString().Split()[1]
-
-$dbt_fabric_version = (pip show dbt-fabric 2>$null | Select-String -Pattern "Version:").ToString().Split()[-1]
-if (-not $dbt_fabric_version) { $dbt_fabric_version = "Not installed" }
-
+$dbt_fabric_version    = (pip show dbt-fabric 2>$null | Select-String -Pattern "Version:").ToString().Split()[-1]
+if (-not $dbt_fabric_version)    { $dbt_fabric_version    = "Not installed" }
 $dbt_sqlserver_version = (pip show dbt-sqlserver 2>$null | Select-String -Pattern "Version:").ToString().Split()[-1]
 if (-not $dbt_sqlserver_version) { $dbt_sqlserver_version = "Not installed" }
 
-# ---- Env vars for banner/debug (same names you showed) ----
-$env:DBT_COMMAND_LINE       = $full_command
-$env:DBT_FABRIC_VERSION     = $dbt_fabric_version
-$env:DBT_PYTHON_VERSION     = $python_version
-$env:DBT_SQLSERVER_VERSION  = $dbt_sqlserver_version
-$env:DBT_EXECUTION_TIMESTAMP= $timestamp
-$env:PYTHONIOENCODING       = "utf-8"
+# ---- Env vars for banner/debug ----
+$env:DBT_COMMAND_LINE        = $full_command
+$env:DBT_FABRIC_VERSION      = $dbt_fabric_version
+$env:DBT_PYTHON_VERSION      = $python_version
+$env:DBT_SQLSERVER_VERSION   = $dbt_sqlserver_version
+$env:DBT_EXECUTION_TIMESTAMP = $timestamp
+$env:PYTHONIOENCODING        = "utf-8"
 
 # ---- Banner ----
 Write-Host "DBT_COMMAND_LINE : $env:DBT_COMMAND_LINE"
@@ -60,8 +59,10 @@ Write-Host "DBT_EXECUTION_TIMESTAMP: $env:DBT_EXECUTION_TIMESTAMP"
 Write-Host "DBT_TARGET_SQLSERVER: $env:DBT_TARGET_SQLSERVER"
 
 try {
+  # =====================================================================
+  # Drop mode with selector support (only when -DropModels is present)
+  # =====================================================================
   if ($DropModels.IsPresent) {
-
     # 1) Normalize explicit model list (comma/newline/array all OK)
     $resolved = @()
     if ($Models) {
@@ -81,7 +82,7 @@ try {
       if ($Excludes -and $Excludes.Count -gt 0) { $lsArgs += @('--exclude'); $lsArgs += $Excludes }
 
       Write-Host "Resolving selectors via: dbt $($lsArgs -join ' ')"
-      $listed = & dbt @lsArgs | Where-Object { $_ -and $_.Trim() -ne '' }
+      $listed = & dbt $lsArgs | Where-Object { $_ -and $_.Trim() -ne '' }
       foreach ($n in $listed) { $resolved += $n.Trim() }
     }
 
@@ -105,10 +106,10 @@ try {
       return
     }
 
-    # 5) Build JSON for --args (empty string package_name is fine; macro ignores it)
+    # 5) Build JSON for --args
     $argsObj = [ordered]@{
       models       = $resolved
-      package_name = $PackageName
+      package_name = $PackageName         # empty string is fine
       confirm      = $true
     }
     $argsJson = $argsObj | ConvertTo-Json -Depth 5 -Compress
@@ -122,8 +123,11 @@ try {
     return
   }
 
-  $isRun = $args -contains "run"
-  & dbt @args
+  # =========================================================
+  # Normal path: pass-through to dbt CLI
+  # =========================================================
+  $isRun = $DbtArgs -contains "run"
+  & dbt $DbtArgs
 
   if ($LASTEXITCODE -eq 0 -and $isRun) {
     Write-Host "Running show_run_results_html.py..."
@@ -134,12 +138,12 @@ catch {
   Write-Error "Error running dbt: $_"
 }
 finally {
-  # ---- Clean up env variables (same pattern you had) ----
-  Remove-Item Env:DBT_COMMAND_LINE -ErrorAction SilentlyContinue
-  Remove-Item Env:DBT_PYTHON_VERSION -ErrorAction SilentlyContinue
-  Remove-Item Env:DBT_FABRIC_VERSION -ErrorAction SilentlyContinue
-  Remove-Item Env:DBT_SQLSERVER_VERSION -ErrorAction SilentlyContinue
+  # ---- Clean up env variables ----
+  Remove-Item Env:DBT_COMMAND_LINE        -ErrorAction SilentlyContinue
+  Remove-Item Env:DBT_PYTHON_VERSION      -ErrorAction SilentlyContinue
+  Remove-Item Env:DBT_FABRIC_VERSION      -ErrorAction SilentlyContinue
+  Remove-Item Env:DBT_SQLSERVER_VERSION   -ErrorAction SilentlyContinue
   Remove-Item Env:DBT_EXECUTION_TIMESTAMP -ErrorAction SilentlyContinue
-  Remove-Item Env:PYTHONIOENCODING -ErrorAction SilentlyContinue
-  Remove-Item Env:ALLOW_TABLE_DROP -ErrorAction SilentlyContinue
+  Remove-Item Env:PYTHONIOENCODING        -ErrorAction SilentlyContinue
+  Remove-Item Env:ALLOW_TABLE_DROP        -ErrorAction SilentlyContinue
 }
