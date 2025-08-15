@@ -1,0 +1,111 @@
+# azure-pipelines-drop.yml
+# Ad-hoc pipeline to drop dbt tables via your wrapper (invoke-dbt.ps1)
+trigger: none
+pr: none
+
+# -------- Parameters (shown as prompts when you Run pipeline) --------
+parameters:
+- name: EnvironmentName                 # must match your ADO Environment naming
+  type: string
+  default: PRD
+  values: [DEV, QAT, UAT, PRD]
+
+- name: ModelsToDrop                    # comma and/or newline separated model names
+  type: string
+  default: ''
+
+- name: Selectors                       # dbt selectors (e.g., "tag:dim"), multi-line OK
+  type: string
+  default: ''
+
+- name: Excludes                        # dbt --exclude selectors, multi-line OK
+  type: string
+  default: ''
+
+- name: PackageName
+  type: string
+  default: 'SimulationsEDW'             # blank disables package filter in macro
+
+- name: ConfirmDrop
+  type: boolean
+  default: false                        # must be true to actually drop
+
+# Paths on your self-hosted VM (adjust if needed)
+- name: WorkingDir
+  type: string
+  default: 'C:\source\repos\DIV.Simulations.EDW\SimulationsEDW_Cont\SimulationsEDW'
+
+- name: VenvActivate
+  type: string
+  default: '..\venv\Scripts\Activate.ps1'   # relative to WorkingDir
+
+stages:
+- stage: DropTables
+  displayName: 'Ad-hoc: Drop selected dbt tables'
+  jobs:
+  - deployment: Drop
+    displayName: 'Run drop_model_tables'
+    # IMPORTANT: match your Azure DevOps Environment name that targets the right self-hosted VM
+    environment: 'DTY-Simulation-EDW-${{ parameters.EnvironmentName }}'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - pwsh: |
+              # ------ Map dbt target (dev/qat/uat/prd) for profiles.yml ------
+              $env:DBT_TARGET_SQLSERVER = '${{ lower(parameters.EnvironmentName) }}'
+
+              # ------ Navigate to project & activate EXISTING venv ------
+              cd '${{ parameters.WorkingDir }}'
+              . '${{ parameters.VenvActivate }}'
+
+              # ------ Read multi-line parameters safely via here-strings ------
+              $modelsRaw = @'
+${{ parameters.ModelsToDrop }}
+'@
+
+              $selectorsRaw = @'
+${{ parameters.Selectors }}
+'@
+
+              $excludesRaw = @'
+${{ parameters.Excludes }}
+'@
+
+              function Split-Items([string]$text) {
+                $out = @()
+                foreach ($x in ($text -split '[,\r\n]')) {
+                  $t = $x.Trim()
+                  if ($t) { $out += $t }
+                }
+                return ,$out
+              }
+
+              $models    = Split-Items $modelsRaw
+              $selectors = Split-Items $selectorsRaw
+              $excludes  = Split-Items $excludesRaw
+
+              Write-Host "Models   : $($models -join ', ')"
+              Write-Host "Selectors: $($selectors -join ', ')"
+              Write-Host "Excludes : $($excludes -join ', ')"
+              Write-Host "Package  : ${{ parameters.PackageName }}"
+              Write-Host "DBT Target: $env:DBT_TARGET_SQLSERVER"
+
+              # ------ Build parameter splat for your wrapper ------
+              $splat = @{
+                DropModels  = $true
+                Models      = $models
+                Selectors   = $selectors
+                Excludes    = $excludes
+                PackageName = '${{ parameters.PackageName }}'
+              }
+
+              if ('${{ parameters.ConfirmDrop }}' -eq 'True') {
+                $splat['ConfirmDrop'] = $true
+              } else {
+                Write-Host 'ConfirmDrop is FALSE — this will be a DRY RUN; wrapper will refuse to drop.'
+              }
+
+              # ------ Call your wrapper (handles safety gate + run-operation) ------
+              .\invoke-dbt.ps1 @splat
+            displayName: 'Invoke drop_model_tables via wrapper'
