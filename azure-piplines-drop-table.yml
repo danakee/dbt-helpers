@@ -39,6 +39,15 @@ parameters:
   type: string
   default: '..\venv\Scripts\Activate.ps1'   # relative to WorkingDir
 
+# Environment to VM resource mapping (hidden parameter)
+- name: EnvironmentResources
+  type: object
+  default:
+    DEV: '0002WD-BLD-01v'
+    QAT: 'YOUR-QAT-VM-NAME'    # TODO: Replace with actual QAT VM name
+    UAT: 'YOUR-UAT-VM-NAME'    # TODO: Replace with actual UAT VM name
+    PRD: 'YOUR-PRD-VM-NAME'    # TODO: Replace with actual PRD VM name
+
 stages:
 - stage: DropTables
   displayName: 'Ad-hoc: Drop selected dbt tables'
@@ -46,14 +55,16 @@ stages:
   - deployment: Drop
     displayName: 'Run drop_model_tables'
     # IMPORTANT: match your Azure DevOps Environment name that targets the right self-hosted VM
-    environment: 'DIV-Simulation-EDW-$(parameters.EnvironmentName)'
+    environment:
+      name: 'DIV-Simulation-EDW-${{ parameters.EnvironmentName }}'
+      resourceName: '${{ parameters.EnvironmentResources[parameters.EnvironmentName] }}'
     strategy:
       runOnce:
         deploy:
           steps:
           - pwsh: |
               # ------ Map dbt target (dev/qat/uat/prd) for profiles.yml ------
-              $env:DBT_TARGET_SQLSERVER = '${{ lower(parameters.EnvironmentName) }}'
+              $env:DBT_TARGET_SQLSERVER = '${{ parameters.EnvironmentName }}'
               
               # ------ Navigate to project & activate EXISTING venv ------
               cd '${{ parameters.WorkingDir }}'
@@ -61,15 +72,15 @@ stages:
               
               # ------ Read multi-line parameters safely via here-strings ------
               $modelsRaw = @'
-              $(parameters.ModelsToDrop)
+              ${{ parameters.ModelsToDrop }}
               '@
               
               $selectorsRaw = @'
-              $(parameters.Selectors)
+              ${{ parameters.Selectors }}
               '@
               
               $excludesRaw = @'
-              $(parameters.Excludes)
+              ${{ parameters.Excludes }}
               '@
               
               function Split-Items([string]$text) {
@@ -88,7 +99,7 @@ stages:
               Write-Host "Models   : $($models -join ', ')"
               Write-Host "Selectors: $($selectors -join ', ')"
               Write-Host "Excludes : $($excludes -join ', ')"
-              Write-Host "Package  : $(parameters.PackageName)"
+              Write-Host "Package  : ${{ parameters.PackageName }}"
               Write-Host "DBT Target: $env:DBT_TARGET_SQLSERVER"
               
               # ------ Build parameter splat for your wrapper ------
@@ -97,10 +108,10 @@ stages:
                   Models = $models
                   Selectors = $selectors
                   Excludes = $excludes
-                  PackageName = '$(parameters.PackageName)'
+                  PackageName = '${{ parameters.PackageName }}'
               }
               
-              if ('$(parameters.ConfirmDrop)' -eq 'true') {
+              if ('${{ parameters.ConfirmDrop }}' -eq 'true') {
                   $splat['ConfirmDrop'] = $true
               }
               else {
