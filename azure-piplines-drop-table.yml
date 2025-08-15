@@ -46,7 +46,7 @@ stages:
   - deployment: Drop
     displayName: 'Run drop_model_tables'
     # IMPORTANT: match your Azure DevOps Environment name that targets the right self-hosted VM
-    environment: 'DTY-Simulation-EDW-${{ parameters.EnvironmentName }}'
+    environment: 'DIV-Simulation-EDW-$(parameters.EnvironmentName)'
     strategy:
       runOnce:
         deploy:
@@ -54,58 +54,59 @@ stages:
           - pwsh: |
               # ------ Map dbt target (dev/qat/uat/prd) for profiles.yml ------
               $env:DBT_TARGET_SQLSERVER = '${{ lower(parameters.EnvironmentName) }}'
-
+              
               # ------ Navigate to project & activate EXISTING venv ------
               cd '${{ parameters.WorkingDir }}'
               . '${{ parameters.VenvActivate }}'
-
+              
               # ------ Read multi-line parameters safely via here-strings ------
               $modelsRaw = @'
-${{ parameters.ModelsToDrop }}
-'@
-
+              $(parameters.ModelsToDrop)
+              '@
+              
               $selectorsRaw = @'
-${{ parameters.Selectors }}
-'@
-
+              $(parameters.Selectors)
+              '@
+              
               $excludesRaw = @'
-${{ parameters.Excludes }}
-'@
-
+              $(parameters.Excludes)
+              '@
+              
               function Split-Items([string]$text) {
-                $out = @()
-                foreach ($x in ($text -split '[,\r\n]')) {
-                  $t = $x.Trim()
-                  if ($t) { $out += $t }
-                }
-                return ,$out
+                  $out = @()
+                  foreach ($x in ($text -split '[,\r\n]')) {
+                      $t = $x.Trim()
+                      if ($t) { $out += $t }
+                  }
+                  return ,$out
               }
-
-              $models    = Split-Items $modelsRaw
+              
+              $models = Split-Items $modelsRaw
               $selectors = Split-Items $selectorsRaw
-              $excludes  = Split-Items $excludesRaw
-
+              $excludes = Split-Items $excludesRaw
+              
               Write-Host "Models   : $($models -join ', ')"
               Write-Host "Selectors: $($selectors -join ', ')"
               Write-Host "Excludes : $($excludes -join ', ')"
-              Write-Host "Package  : ${{ parameters.PackageName }}"
+              Write-Host "Package  : $(parameters.PackageName)"
               Write-Host "DBT Target: $env:DBT_TARGET_SQLSERVER"
-
+              
               # ------ Build parameter splat for your wrapper ------
               $splat = @{
-                DropModels  = $true
-                Models      = $models
-                Selectors   = $selectors
-                Excludes    = $excludes
-                PackageName = '${{ parameters.PackageName }}'
+                  DropModels = $true
+                  Models = $models
+                  Selectors = $selectors
+                  Excludes = $excludes
+                  PackageName = '$(parameters.PackageName)'
               }
-
-              if ('${{ parameters.ConfirmDrop }}' -eq 'True') {
-                $splat['ConfirmDrop'] = $true
-              } else {
-                Write-Host 'ConfirmDrop is FALSE — this will be a DRY RUN; wrapper will refuse to drop.'
+              
+              if ('$(parameters.ConfirmDrop)' -eq 'true') {
+                  $splat['ConfirmDrop'] = $true
               }
-
+              else {
+                  Write-Host 'ConfirmDrop is FALSE - this will be a DRY RUN; wrapper will refuse to drop.'
+              }
+              
               # ------ Call your wrapper (handles safety gate + run-operation) ------
               .\invoke-dbt.ps1 @splat
             displayName: 'Invoke drop_model_tables via wrapper'
