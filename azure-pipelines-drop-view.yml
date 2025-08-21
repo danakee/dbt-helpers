@@ -1,0 +1,145 @@
+# azure-pipelines-drop-view.yml
+# Ad-hoc pipeline to drop dbt views via your wrapper (invoke-dbt.ps1)
+trigger: none
+pr: none
+
+# -------- Parameters (shown as prompts when you Run pipeline) --------
+parameters:
+- name: EnvironmentName                 # must match your ADO Environment naming
+  type: string
+  default: DEV
+  values: [DEV, QAT, UAT, PRD]
+
+- name: DatabaseName
+  type: string
+  default: 'SimulationsAnalyticsStage'
+  values:
+    - 'SimulationsAnalyticsStage'
+    - 'SimulationsAnalytics'
+    - 'SimulationsAnalyticsLogging'
+
+- name: ViewsToDrop                     # comma and/or newline separated schema.view list
+  description: 'Enter schema.view names to drop (comma and/or newline separated)'
+  type: string
+  default: ''
+
+# NOTE: PackageName isn’t used by dbt run-operation itself; your macro could
+# read it from an env var if you want to filter internally. Keeping for parity.
+- name: PackageName
+  type: string
+  default: 'SimulationsEDW'
+
+- name: ConfirmDrop
+  type: boolean
+  default: false                        # must be true to actually drop
+
+# Paths on the self-hosted VM (adjust if needed)
+- name: WorkingDir
+  type: string
+  default: 'C:\source\repos\DIV.Simulations.EDW\simulationsEDW_Cont\SimulationsEDW'
+
+- name: VenvActivate
+  type: string
+  default: '..\.venv\Scripts\Activate.ps1'   # relative to WorkingDir
+
+# Environment to VM resource mapping (hidden parameter)
+- name: EnvironmentResources
+  type: object
+  default:
+    DEV:  '0002WD-BLD-01V'
+    QAT:  '0002WQ-BLD-01V'
+    UAT:  '0002WU-BLD-01V'
+    PRD:  '0002WP-BLD-01V'
+
+stages:
+- stage: DropViews
+  displayName: 'Ad-hoc: Drop selected dbt views'
+  jobs:
+  - deployment: Drop
+    displayName: 'Run drop_views'
+    environment:
+      # IMPORTANT: this must match an Azure DevOps "Environment" that targets your self-hosted VM
+      name: 'DIV-Simulation-EDW-${{ parameters.EnvironmentName }}'
+      resourceName: '${{ parameters.EnvironmentResources[parameters.EnvironmentName] }}'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - pwsh: |
+              # ---------- Map dbt target (dev/qat/uat/prd) for profiles.yml ----------
+              $env:DBT_TARGET_SQLSERVER = "${{ lower(parameters.EnvironmentName) }}"
+
+              # Optional: expose PackageName to macro via env var if you ever want to use it
+              $env:DBT_PACKAGE_NAME = "${{ parameters.PackageName }}"
+
+              # ---------- Navigate to project & activate EXISTING venv ----------
+              Set-Location -Path "${{ parameters.WorkingDir }}"
+              . "${{ parameters.VenvActivate }}"
+
+              # ---------- Read & normalize multi-line / comma-separated view list ----------
+              $viewsRaw = @'
+              ${{ parameters.ViewsToDrop }}
+              '@
+
+              function Split-Items([string]$text) {
+                $out = @()
+                foreach ($x in $text -split '[,\r\n]') {
+                  $t = $x.Trim()
+                  if ($t) { $out += $t }
+                }
+                # de-dupe while preserving order
+                $seen = @{}
+                $uniq = @()
+                foreach ($v in $out) { if (-not $seen.ContainsKey($v)) { $seen[$v] = $true; $uniq += $v } }
+                return ,$uniq
+              }
+
+              $views = Split-Items $viewsRaw
+
+              Write-Host "Environment: $env:DBT_TARGET_SQLSERVER"
+              Write-Host "Database   : ${{ parameters.DatabaseName }}"
+              if ($views.Count -eq 0) {
+                Write-Warning "No views were provided. Nothing to do."
+                exit 0
+              }
+
+              Write-Host "Views (parsed):"
+              $views | ForEach-Object { Write-Host "  - $_" }
+
+              if (-not ${{ parameters.ConfirmDrop }}) {
+                Write-Warning "ConfirmDrop is FALSE. This is a dry run (no changes made)."
+                exit 0
+              }
+
+              # ---------- Build YAML args for dbt run-operation ----------
+              # dbt accepts YAML via --args. We create a safe here-string so quoting is handled.
+              $database = "${{ parameters.DatabaseName }}"
+
+              # Produce a YAML array block:
+              $viewsYamlBlock = ($views | ForEach-Object { "  - '$_'" }) -join "`n"
+
+              $argsYaml = @"
+              database: '$database'
+              views:
+              $viewsYamlBlock
+              "@
+
+              # (Optional) Save for troubleshooting
+              $argsFile = Join-Path $PWD ".tmp_drop_views_args.yml"
+              $argsYaml | Set-Content -NoNewline -Path $argsFile -Encoding UTF8
+
+              Write-Host "----- drop_views_if_exists --args payload -----"
+              Write-Host $argsYaml
+              Write-Host "------------------------------------------------"
+
+              # ---------- Invoke dbt via your wrapper ----------
+              # Expected wrapper usage:
+              #   .\invoke-dbt.ps1 run-operation <macro> --args "<yaml>"
+              #
+              # Use -Raw to keep original formatting when passing as a single string.
+              $argsPayload = Get-Content -Path $argsFile -Raw
+
+              # If your wrapper passes args straight through, this will Just Work:
+              .\invoke-dbt.ps1 run-operation drop_views_if_exists --args "$argsPayload"
+
+            displayName: 'Invoke dbt wrapper script with run-operation'
