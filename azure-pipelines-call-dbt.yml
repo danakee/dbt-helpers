@@ -1,0 +1,85 @@
+# azure-pipelines-call-dbt.yml
+trigger: none
+pr: none
+
+# -------- Parameters (shown in Run UI) --------
+parameters:
+- name: EnvironmentName
+  type: string
+  default: DEV
+  values: [DEV, QAT, UAT, PRD]
+
+- name: CommandLine
+  type: string
+  default: ''   # e.g., "dbt --version" or "dbt clean"
+
+# Paths on your self-hosted VM
+- name: WorkingDir
+  type: string
+  default: 'C:\source\repos\DIV.simulations.EDW\SimulationsEDW_Cont\SimulationsEDW'
+
+- name: VenvActivate
+  type: string
+  default: '..\venv\Scripts\Activate.ps1'   # relative to WorkingDir
+
+# -------- Derived scalar variable (NOT shown in UI) --------
+# Choose the VM resource based on the selected EnvironmentName
+variables:
+- name: vmResource
+  ${{ if eq(parameters.EnvironmentName, 'DEV') }}:
+    value: '0002WD-BLD-01V'
+- name: vmResource
+  ${{ if eq(parameters.EnvironmentName, 'QAT') }}:
+    value: '0002WD-BLD-01V'
+- name: vmResource
+  ${{ if eq(parameters.EnvironmentName, 'UAT') }}:
+    value: '0002WD-BLD-01V'
+- name: vmResource
+  ${{ if eq(parameters.EnvironmentName, 'PRD') }}:
+    value: '0002WP-BLD-01V'
+
+# Use your self-hosted agent pool
+pool:
+  name: SelfHosted   # <-- set to your pool name
+
+stages:
+- stage: InvokeDbt
+  displayName: 'Call dbt'
+  jobs:
+  - deployment: InvokeDBT
+    displayName: 'Call dbt with parameters'
+    environment:
+      name: 'DIV-Simulation-EDW-${{ parameters.EnvironmentName }}'
+      resourceName: ${{ variables.vmResource }}
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - pwsh: |
+              $ErrorActionPreference = 'Stop'
+
+              if ([string]::IsNullOrWhiteSpace('${{ parameters.CommandLine }}')) {
+                throw "CommandLine parameter is required. Aborting."
+              }
+
+              $env:DBT_TARGET_SQLSERVER = "${{ lower(parameters.EnvironmentName) }}"
+              Write-Host "DBT_TARGET_SQLSERVER = $env:DBT_TARGET_SQLSERVER"
+              Write-Host "Current user: $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+
+              Set-Location -Path "${{ parameters.WorkingDir }}"
+              Write-Host "Working directory: $(Get-Location)"
+
+              $activatePath = Join-Path (Get-Location) "${{ parameters.VenvActivate }}"
+              if (-not (Test-Path $activatePath)) { throw "Activate script not found: $activatePath" }
+              & $activatePath
+
+              $cmd = '${{ parameters.CommandLine }}'
+              Write-Host "Executing: $cmd"
+              Invoke-Expression $cmd
+
+              if ($LASTEXITCODE -ne $null -and $LASTEXITCODE -ne 0) {
+                throw "Command failed with exit code $LASTEXITCODE"
+              }
+
+              Write-Host "Command execution completed."
+            displayName: "Run command on ${{ parameters.EnvironmentName }}"
