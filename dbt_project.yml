@@ -1,0 +1,72 @@
+# Step 1: dbt_project.yml configuration
+# dbt_project.yml
+
+name: 'your_project_name'
+version: '1.0.0'
+
+vars:
+  # FK Metadata Configuration - points to your manually created tables
+  fk_metadata_database: 'SimulationsAnalyticsLogging'
+  fk_metadata_schema: 'dbo'
+  fk_metadata_table: 'DataMartForeignKeyMetaData'
+  
+  # FK View Configuration - points to your manually created view
+  fk_view_database: 'SimulationsAnalyticsLogging'
+  fk_view_schema: 'dbo'
+  fk_view_table: 'vw_CurrentDataMartForeignKeys'
+  
+  # Optional: Environment-specific exclusions
+  fk_excluded_tables: 
+    - 'FactTemp%'
+    - 'FactStaging%'
+    - 'FactTest%'
+
+models:
+  your_project_name:
+    # Your regular business models
+    marts:
+      +materialized: table
+      
+    # Infrastructure monitoring models
+    infrastructure:
+      +materialized: view
+      +schema: infrastructure
+
+---
+
+# Step 2: Environment-specific variable overrides
+# profiles.yml
+
+your_project_name:
+  target: dev
+  outputs:
+    dev:
+      type: sqlserver
+      driver: 'ODBC Driver 17 for SQL Server'
+      server: your-dev-server
+      port: 1433
+      database: your_dev_database
+      schema: dbo
+      # Dev-specific logging database
+      vars:
+        fk_metadata_database: 'SimulationsAnalyticsLogging_Dev'
+        
+    staging:
+      type: sqlserver
+      driver: 'ODBC Driver 17 for SQL Server' 
+      server: your-staging-server
+      port: 1433
+      database: your_staging_database
+      schema: dbo
+      vars:
+        fk_metadata_database: 'SimulationsAnalyticsLogging_Staging'
+        
+    prod:
+      type: sqlserver
+      driver: 'ODBC Driver 17 for SQL Server'
+      server: your-prod-server
+      port: 1433
+      database: your_prod_database
+      schema: dbo
+      vars:
+        fk_metadata_database: 'SimulationsAnalyticsLogging_Prod'
