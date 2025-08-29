@@ -1,0 +1,219 @@
+version: 2
+
+sources:
+  - name: logging
+    database: SimulationsAnalyticsLogging
+    schema: dbo
+    description: "DBT execution and process logging tables"
+    
+    tables:
+      # Existing Tables
+      - name: DataMartForeignKeyMetaData
+        description: "Foreign key metadata for drop/recreate operations"
+        columns:
+          - name: ReferencingSchema
+            description: "Schema of the table that contains the foreign key"
+            tests:
+              - not_null
+          - name: ReferencingTable
+            description: "Table that contains the foreign key"
+            tests:
+              - not_null
+          - name: ReferencedSchema
+            description: "Schema of the table that is referenced by the foreign key"
+            tests:
+              - not_null
+          - name: ReferencedTable
+            description: "Table that is referenced by the foreign key"
+            tests:
+              - not_null
+          - name: ForeignKeyName
+            description: "Unique foreign key constraint name"
+            tests:
+              - unique
+              - not_null
+          - name: DropFKStatement
+            description: "SQL statement to drop the foreign key"
+            tests:
+              - not_null
+          - name: CreateFKStatement
+            description: "SQL statement to create the foreign key"
+            tests:
+              - not_null
+          - name: ConditionalDropFKStatement
+            description: "SQL statement to conditionally drop the foreign key"
+          - name: ConditionalCreateFKStatement
+            description: "SQL statement to conditionally create the foreign key"
+          - name: IsFKEnabled
+            description: "Whether the foreign key is currently enabled"
+            tests:
+              - not_null
+              - accepted_values:
+                  values: [0, 1]
+        tests:
+          - dbt_utils.unique_combination_of_columns:
+              combination_of_columns:
+                - ReferencingSchema
+                - ReferencingTable
+                - ForeignKeyName
+
+      - name: DBTExecutionLog
+        description: "High-level execution logging for DBT runs"
+        data-tests:
+          - unique:
+              column_name: ExecutionId
+          - not_null:
+              column_name: InvocationGUID
+        columns:
+          - name: ExecutionId
+            description: "Primary key for the execution log"
+          - name: InvocationGUID
+            description: "Unique identifier for this DBT run"
+
+      - name: DBTExecutionParameterLog
+        description: "Parameters used during DBT execution"
+        data-tests:
+          - unique:
+              column_name: ExecutionParameterId
+          - relationships:
+              to: source('logging', 'DBTExecutionLog')
+              field: InvocationGUID
+        columns:
+          - name: ExecutionParameterId
+            description: "Primary key for parameter log"
+          - name: InvocationGUID
+            description: "Links to parent execution in DBTExecutionLog"
+
+      - name: DBTProcessExecutionLog
+        description: "Detailed logging for individual process executions including row counts and timing"
+        data-tests:
+          - unique:
+              column_name: ProcessId
+          - not_null:
+              column_name: ProcessId
+          - relationships:
+              to: source('logging', 'DBTExecutionLog')
+              field: InvocationGUID
+        columns:
+          - name: ProcessId
+            description: "Primary key for the process log"
+          - name: InvocationGUID
+            description: "Links to parent execution in DBTExecutionLog"
+          - name: ProcessName
+            description: "Name of the process being executed"
+          - name: ExecutionStatus
+            description: "Current status of the process"
+            data-tests:
+              - accepted_values:
+                  values: ['Success', 'Failure', 'Incomplete']
+
+      - name: ForeignKeyOperationLog
+        description: "Log of foreign key operations (drops/creates)"
+
+      - name: StageTableLastUpdate
+        description: "Tracks the last successful update time for stage tables"
+        data-tests:
+          - unique:
+              column_name: TableName
+        columns:
+          - name: TableName
+            description: "Name of the stage table"
+          - name: LastUpdated
+            description: "Timestamp of last successful update"
+
+      # Views
+      - name: vw_CurrentDataMartForeignKeys
+        description: "View showing current foreign keys in the data mart"
+        columns:
+          - name: ReferencingSchema
+            description: "Schema of the table that contains the foreign key"
+          - name: ReferencingTable
+            description: "Table that contains the foreign key"
+          - name: ReferencedSchema
+            description: "Schema of the table that is referenced"
+          - name: ReferencedTable
+            description: "Table that is referenced by the foreign key"
+          - name: ForeignKeyName
+            description: "Foreign key constraint name"
+          - name: DropFKStatement
+            description: "Generated SQL to drop this foreign key"
+          - name: CreateFKStatement
+            description: "Generated SQL to create this foreign key"
+          - name: ConditionalDropFKStatement
+            description: "Generated SQL to conditionally drop this foreign key"
+          - name: ConditionalCreateFKStatement
+            description: "Generated SQL to conditionally create this foreign key"
+          - name: IsFKEnabled
+            description: "Current enabled status of the foreign key"
+
+      - name: vw_DBTExecutionLogInstance
+        description: "View of DBT execution log instances"
+
+      - name: vw_GetDataMartTableRowCounts
+        description: "View showing row counts for data mart tables"
+
+      - name: vw_GetMissingDataMartForeignKeys
+        description: "View identifying missing foreign keys in data mart"
+
+      - name: vw_GetStageTableRowCounts
+        description: "View showing row counts for stage tables"
+
+      - name: vw_LatestForeignKeyOperation
+        description: "View showing the latest foreign key operations"
+
+      - name: vw_LatestProcessExecutionInfo
+        description: "View showing latest process execution information"
+
+      - name: vw_ModelPerformanceMetrics
+        description: "View showing model performance metrics"
+
+models:
+  - name: vw_FKMetadataSummary
+    description: "Summary statistics of foreign key metadata by table"
+    columns:
+      - name: ReferencingTable
+        description: "Table containing foreign keys"
+        tests:
+          - unique
+          - not_null
+      - name: ForeignKeyCount
+        description: "Total number of foreign keys for this table"
+        tests:
+          - not_null
+      - name: EnabledFKCount
+        description: "Number of enabled foreign keys"
+      - name: DisabledFKCount
+        description: "Number of disabled foreign keys"
+      - name: HasMetadata
+        description: "Whether this table has any FK metadata recorded"
+      - name: Status
+        description: "Overall status of FK metadata for this table"
+        
+  - name: vw_FKHealthCheck
+    description: "Identifies foreign keys missing from metadata table"
+    columns:
+      - name: ReferencingSchema
+        description: "Schema of table with FK issue"
+      - name: ReferencingTable
+        description: "Table with FK issue"
+      - name: ForeignKeyName
+        description: "Foreign key with issue"
+      - name: Issue
+        description: "Type of FK metadata issue"
+      - name: Description
+        description: "Detailed description of the issue"
+    tests:
+      - dbt_utils.expression_is_true:
+          expression: "count(*) = 0"
+          config:
+            severity: warn
+            
+  - name: vw_FactTableFKCoverage
+    description: "Shows which fact tables have FK metadata coverage"
+    columns:
+      - name: ReferencingTable
+        description: "Fact table name"
+      - name: MetadataCoverage
+        description: "Whether table has FK metadata coverage"
+      - name: NeedsMetadata
+        description: "Flag indicating if metadata setup is needed"
