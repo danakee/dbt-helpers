@@ -16,6 +16,7 @@ FROM
 WHERE 
     YEAR([nd].[create_dt]) > 2006
 ),
+
 [Test] AS (
 SELECT 
     [IssuePkey],
@@ -32,7 +33,7 @@ SELECT
         ELSE 1      -- Assignment changed
     END AS [AssignmentChanged]
 FROM 
-    [BaseData]
+    [GroupedData]
 GROUP BY 
     [IssuePkey], 
     [NodeAssignId], 
@@ -49,7 +50,8 @@ SELECT
     [AssignmentChanged],
     -- Add total issue assignment count
     COUNT(*) OVER (PARTITION BY [IssuePkey]) AS [IssueNodeCount]
-FROM [Test]
+FROM 
+    [Test]
 WHERE 
     (SELECT COUNT(*) FROM [Test] t2 WHERE t2.[IssuePkey] = [Test].[IssuePkey]) > 1
 ORDER BY 
