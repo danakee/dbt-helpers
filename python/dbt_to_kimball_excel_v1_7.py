@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 r"""
-dbt_to_kimball_excel.py  (v1.7.2)
+dbt_to_kimball_excel.py  (v1.7.3)
 
-What’s new vs v1.7/1.7.1
-------------------------
-• Robust to `tests:` or `data_tests:` in YAML (reads compiled test nodes).
-• Normalizes `ref()` / `source()` in relationships.
-• Canonicalizes model *names* and *aliases* → alias, so links resolve even with aliases.
-• Ignores relationships that reference missing models (no failure; diagram just omits them).
-• Keeps v1.6 layout/formatting and freeze panes below header (meta + header stay frozen).
-• Optional `--star-diagrams` draws per-Fact star tabs (matplotlib). If libs are missing, we skip nicely.
+Fixes vs 1.7.2
+--------------
+• Accurately determines the FROM side of dbt `relationships` tests by comparing the test's
+  `to:` (normalized ref()/source()) against the test's dependent model nodes and selecting
+  the "other" model as the child/from model.
+• Canonicalizes names/aliases consistently before grouping.
+• Star tabs are created for any model with outgoing relationships (not only those tagged Fact).
+• Skips missing/WIP dimensions and skips creating an empty star (no more single-box stars).
+• Still supports YAML using either `tests:` or `data_tests:` (we read compiled manifest tests).
 """
 
 import argparse, json, re, sys, fnmatch, math, tempfile, os
@@ -110,8 +111,8 @@ def get_catalog_columns_for_model(catalog, node):
             return v.get('columns') or {}
     return {}
 
-def build_relationship_rows(manifest):
-    """Return list of dicts: FromModel, FromColumn, ToModel, ToColumn, TestName (raw names)."""
+# Return raw rel rows + the set of dependent model node ids for each test
+def build_relationship_rows_with_deps(manifest):
     rows = []; nodes = manifest.get('nodes', {})
     for _, test in nodes.items():
         if test.get('resource_type') != 'test':
@@ -125,28 +126,16 @@ def build_relationship_rows(manifest):
         raw_to = kwargs.get('to') or kwargs.get('model') or kwargs.get('to_model')
         to_model = _normalize_to_model(raw_to)
         to_field = kwargs.get('field') or kwargs.get('to_field') or kwargs.get('column')
-        from_model_node = None
+        # Collect all dependent model aliases/names (raw for now)
+        dep_models = []
         for nid in depends:
             n = nodes.get(nid) or {}
             if n.get('resource_type') == 'model':
-                from_model_node = n; break
-        from_model = (from_model_node.get('alias') or from_model_node.get('name')) if from_model_node else None
+                dep_models.append((n.get('alias') or n.get('name')))
         from_column = kwargs.get('column_name') or kwargs.get('field') or kwargs.get('column')
-        rows.append({'FromModel': from_model,'FromColumn': from_column,'ToModel': to_model,'ToColumn': to_field,'TestName': tname})
+        rows.append({'DepModels': dep_models,'ToModel': to_model,'ToColumn': to_field,
+                     'FromModel': None,'FromColumn': from_column,'TestName': tname})
     return rows
-
-def guess_fact_groups(rel_rows, model_kinds):
-    fact_to_dims = defaultdict(set)
-    for r in rel_rows:
-        frm = (r.get('FromModel') or '').lower(); to = (r.get('ToModel') or '').lower()
-        if not frm or not to: 
-            continue
-        frm_kind = model_kinds.get(frm, 'Other'); to_kind = model_kinds.get(to, 'Other')
-        if frm_kind == 'Fact' and to_kind in {'Dimension','Other'}:
-            fact_to_dims[frm].add(to)
-        elif to_kind == 'Fact' and frm_kind in {'Dimension','Other'}:
-            fact_to_dims[to].add(frm)
-    return {k: sorted(v) for k, v in fact_to_dims.items()}
 
 def _as_list(v):
     if v is None: return []
@@ -206,7 +195,6 @@ def should_exclude_sheet(alias_lower: str, tags_lower: set, mat_lower: str, path
         if fnmatch.fnmatch(ps.lower(), g): return True
     return False
 
-
 # ---------- Diagram drawing ----------
 def draw_star_png(fact_name, dim_names, outfile, figsize=(6.5,6.5)):
     try:
@@ -214,7 +202,9 @@ def draw_star_png(fact_name, dim_names, outfile, figsize=(6.5,6.5)):
         plt = importlib.import_module('matplotlib.pyplot')
         from matplotlib.patches import Circle, Rectangle
     except Exception:
-        # Matplotlib/Pillow not available — skip silently
+        return False
+
+    if not dim_names:  # nothing to draw
         return False
 
     fig = plt.figure(figsize=figsize)
@@ -222,7 +212,7 @@ def draw_star_png(fact_name, dim_names, outfile, figsize=(6.5,6.5)):
     ax.set_aspect('equal'); ax.axis('off')
 
     center = (0,0); radius = 3.0
-    n = max(1, len(dim_names))
+    n = len(dim_names)
     angles = [2*math.pi*i/n for i in range(n)]
     positions = [(center[0]+radius*math.cos(a), center[1]+radius*math.sin(a)) for a in angles]
 
@@ -261,7 +251,7 @@ def main():
     parser.add_argument('--exclude-sheet-tags', type=str, default='')
     parser.add_argument('--exclude-sheet-materializations', type=str, default='')
     parser.add_argument('--exclude-sheet-path-globs', type=str, default='')
-    parser.add_argument('--star-diagrams', action='store_true', help='Add a tab per Fact with a radial star image')
+    parser.add_argument('--star-diagrams', action='store_true', help='Add a tab per model with outgoing relationships')
 
     args = parser.parse_args()
 
@@ -300,19 +290,43 @@ def main():
         t = str(token).strip().strip('"').lower()
         return name_to_alias.get(t, t)
 
-    # Relationships
-    rel_rows = build_relationship_rows(manifest)
-    # Normalize From/To to aliases; drop targets not present (graceful when WIP models are missing)
+    # Relationships (use dependents to select true FROM model)
+    raw_rel_rows = build_relationship_rows_with_deps(manifest)
     norm_rel_rows = []
-    for r in rel_rows:
-        frm = canonicalize_model_token(r.get('FromModel'))
-        to  = canonicalize_model_token(r.get('ToModel'))
+    for r in raw_rel_rows:
+        dep_aliases = [canonicalize_model_token(x) for x in (r.get('DepModels') or [])]
+        to_alias    = canonicalize_model_token(r.get('ToModel'))
+        # pick FROM as the first dep that is not the TO
+        from_alias = None
+        for d in dep_aliases:
+            if d and d != to_alias:
+                from_alias = d
+                break
+        # fallback: if only one dep or couldn't find non-TO, use whatever we have
+        if not from_alias and dep_aliases:
+            from_alias = dep_aliases[0]
+
+        if not to_alias or not from_alias:
+            continue  # nothing usable
+
+        norm_rel_rows.append({
+            'FromModel': from_alias,
+            'FromColumn': r.get('FromColumn'),
+            'ToModel': to_alias,
+            'ToColumn': r.get('ToColumn'),
+            'TestName': r.get('TestName'),
+        })
+
+    # Build groups: any model with outgoing relationships becomes a center
+    fact_to_dims = defaultdict(set)
+    for r in norm_rel_rows:
+        frm = r['FromModel']; to = r['ToModel']
         if not frm or not to:
             continue
-        # keep even if `to` not in model_kinds; but we won’t crash later
-        norm_rel_rows.append({**r, 'FromModel': frm, 'ToModel': to})
-
-    fact_groups = guess_fact_groups(norm_rel_rows, model_kinds)
+        # Only include dimensions we actually know about (skip WIP/missing quietly)
+        if to not in name_to_alias.values():
+            continue
+        fact_to_dims[frm].add(to)
 
     # YAML overlays
     yaml_overlays = load_yaml_overlays(args.schemas)
@@ -349,12 +363,9 @@ def main():
     df_rel = pd.DataFrame(norm_rel_rows) if norm_rel_rows else pd.DataFrame(columns=['FromModel','FromColumn','ToModel','ToColumn','TestName'])
 
     star_rows = []
-    for fact, dims in fact_groups.items():
-        if not dims:
-            star_rows.append({'FactModel': fact,'DimensionModel': None})
-        else:
-            for d in dims:
-                star_rows.append({'FactModel': fact,'DimensionModel': d})
+    for center, dims in fact_to_dims.items():
+        for d in sorted(dims):
+            star_rows.append({'FactModel': center, 'DimensionModel': d})
     df_star = pd.DataFrame(star_rows) if star_rows else pd.DataFrame(columns=['FactModel','DimensionModel'])
 
     used_sheet_names = set()
@@ -365,7 +376,7 @@ def main():
         if not df_rel.empty: df_rel.to_excel(writer, index=False, sheet_name='Relationships')
         if not df_star.empty: df_star.to_excel(writer, index=False, sheet_name='Star Map')
 
-        # per-model tabs
+        # per-model tabs (same layout/format as before)
         for n in filtered:
             db, schema, alias = model_relation_identifiers(n)
             alias_lower = (alias or '').lower()
@@ -459,29 +470,26 @@ def main():
             for col_letter, width in col_widths.items():
                 ws.column_dimensions[col_letter].width = width
 
-        # Star diagram tabs (gracefully skip if libs missing)
+        # Star diagram tabs (skip if libs missing; skip empty stars)
         if args.star_diagrams:
             tmpdir = tempfile.mkdtemp(prefix="dbt_star_")
             wb = writer.book
-            for fact, dims in sorted(fact_groups.items()):
-                if not fact:
+            for center, dims in sorted(fact_to_dims.items()):
+                dims_known = [d for d in sorted(dims) if d in name_to_alias.values()]
+                if not dims_known:
                     continue
-                # drop dims we don't know about (e.g., future models)
-                dims_known = [d for d in dims if d in name_to_alias.values()]
-                # still draw with whatever we have
-                img_path = os.path.join(tmpdir, f"{fact}.png")
+                img_path = os.path.join(tmpdir, f"{center}.png")
                 disp_dims = [d.replace('_',' ').title() for d in dims_known]
-                drew = draw_star_png(fact.replace('_',' ').title(), disp_dims, img_path, figsize=(6.5,6.5))
+                drew = draw_star_png(center.replace('_',' ').title(), disp_dims, img_path, figsize=(6.5,6.5))
                 if not drew:
-                    # No diagram libs; just skip silently
                     continue
-                sheet_name = safe_sheet_name(f"Star: {fact}", set(wb.sheetnames))
+                sheet_name = safe_sheet_name(f"Star: {center}", set(wb.sheetnames))
                 ws = wb.create_sheet(title=sheet_name)
                 try:
+                    from openpyxl.drawing.image import Image as XLImage
                     img = XLImage(img_path)
                     ws.add_image(img, "A1")
                 except Exception:
-                    # If Pillow isn't present, skip without failing the whole export
                     pass
 
     print(f"Wrote: {args.out}")
