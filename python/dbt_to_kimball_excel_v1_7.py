@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
 r"""
-dbt_to_kimball_excel.py  (v1.7)
+dbt_to_kimball_excel.py  (v1.7.1)
 
-What’s new in v1.7
-------------------
-• Optional `--star-diagrams` flag: adds a sheet per **Fact** model with a radial “star”
-  diagram (center = Fact, bubbles = related Dimensions).
-• Relationship detection uses dbt `relationships` tests in your manifest.
-• Keeps v1.6 layout/formatting: table meta block at the top, blank spacer, then the
-  column header+rows; blue bold headers, wrapped descriptions, sensible widths; freeze panes.
-
-Requires: pandas, openpyxl, pyyaml, (for diagrams) matplotlib, pillow
+Changes vs v1.7
+---------------
+• Works regardless of YAML using `tests:` or `data_tests:` – we read compiled manifest test nodes.
+• Normalizes `to:` values like `ref('Model')` / `source('pkg','name')` so Fact→Dim links resolve.
+• Keeps v1.6 layout/formatting and freeze panes below the header (meta + header remain frozen).
+• Optional `--star-diagrams` adds a per-Fact radial diagram (matplotlib).
 """
 
 import argparse, json, re, sys, fnmatch, math, tempfile, os
@@ -19,7 +16,7 @@ from pathlib import Path
 
 import pandas as pd
 try:
-    import yaml
+    import yaml  # for YAML overlays
 except Exception:
     yaml = None
 
@@ -50,7 +47,23 @@ def safe_sheet_name(base: str, used: set):
         suffix = f'_{i}'; candidate = (cleaned[:31-len(suffix)] + suffix); i += 1
     used.add(candidate); return candidate
 
+def _normalize_to_model(raw):
+    """Normalize ref()/source() strings to a plain model/source name."""
+    if not raw:
+        return None
+    s = str(raw).strip()
+    # ref('Model') / ref("Model")
+    m = re.match(r"""ref\(\s*['"]([^'"]+)['"]\s*\)""", s, re.IGNORECASE)
+    if m: return m.group(1)
+    # source('pkg','name') -> 'name'
+    m = re.match(r"""source\(\s*['"][^'"]+['"]\s*,\s*['"]([^'"]+)['"]\s*\)""", s, re.IGNORECASE)
+    if m: return m.group(1)
+    return s
+
 def extract_tests_for_model(manifest, node_id):
+    """Return column->list[test] for tests that depend on `node_id`.
+    Works whether YAML used `tests:` or `data_tests:` because we read compiled test nodes.
+    """
     results = defaultdict(list)
     for _, test in manifest.get('nodes', {}).items():
         if test.get('resource_type') != 'test':
@@ -63,7 +76,8 @@ def extract_tests_for_model(manifest, node_id):
         test_name = (meta.get('name') or test.get('name') or 'test').lower()
         rel = None
         if 'relationship' in test_name or 'relationships' in test_name:
-            rel_model = kwargs.get('to') or kwargs.get('model') or kwargs.get('to_model')
+            raw_to = kwargs.get('to') or kwargs.get('model') or kwargs.get('to_model')
+            rel_model = _normalize_to_model(raw_to)
             rel_field = kwargs.get('field') or kwargs.get('to_field') or kwargs.get('column')
             rel = {'to_model': rel_model, 'to_field': rel_field}
         results[col].append({'name': test_name, 'details': rel, 'raw': test})
@@ -109,7 +123,8 @@ def build_relationship_rows(manifest):
             continue
         depends = (test.get('depends_on') or {}).get('nodes') or []
         kwargs = meta.get('kwargs') or {}
-        to_model = kwargs.get('to') or kwargs.get('model') or kwargs.get('to_model')
+        raw_to = kwargs.get('to') or kwargs.get('model') or kwargs.get('to_model')
+        to_model = _normalize_to_model(raw_to)
         to_field = kwargs.get('field') or kwargs.get('to_field') or kwargs.get('column')
         from_model_node = None
         for nid in depends:
@@ -194,7 +209,6 @@ def should_exclude_sheet(alias_lower: str, tags_lower: set, mat_lower: str, path
 
 # ---------- Diagram drawing ----------
 def draw_star_png(fact_name, dim_names, outfile, figsize=(6.5,6.5)):
-    # lazy imports so non-diagram runs don’t need matplotlib/pillow
     import importlib
     plt = importlib.import_module('matplotlib.pyplot')
     from matplotlib.patches import Circle, Rectangle
@@ -208,18 +222,15 @@ def draw_star_png(fact_name, dim_names, outfile, figsize=(6.5,6.5)):
     angles = [2*math.pi*i/n for i in range(n)]
     positions = [(center[0]+radius*math.cos(a), center[1]+radius*math.sin(a)) for a in angles]
 
-    # connectors
     for (x,y) in positions:
         ax.plot([center[0], x], [center[1], y], color="#777777", linewidth=1)
 
-    # center fact box
     rect_w, rect_h = 2.4, 1.2
     fact_rect = Rectangle((center[0]-rect_w/2, center[1]-rect_h/2), rect_w, rect_h,
                           linewidth=1.5, edgecolor='black', facecolor='#FFF2CC')
     ax.add_patch(fact_rect)
     ax.text(center[0], center[1], fact_name, ha='center', va='center', fontsize=12, fontweight='bold')
 
-    # dimension bubbles
     for (x,y), label in zip(positions, dim_names):
         circ = Circle((x,y), 1.0, linewidth=1.5, edgecolor='black', facecolor='#CCF2F9')
         ax.add_patch(circ)
@@ -271,7 +282,7 @@ def main():
         model_kinds[alias] = classify_model_kind(alias, n.get('tags', []))
         name_to_node[alias] = n
 
-    # Relationships and Fact→Dims
+    # Relationships and Fact→Dims (from compiled tests, works with `tests:` or `data_tests:` in YAML)
     rel_rows = build_relationship_rows(manifest)
     fact_groups = guess_fact_groups(rel_rows, model_kinds)
 
@@ -324,7 +335,7 @@ def main():
         if not df_rel.empty: df_rel.to_excel(writer, index=False, sheet_name='Relationships')
         if not df_star.empty: df_star.to_excel(writer, index=False, sheet_name='Star Map')
 
-        # per-model tabs (v1.6 layout)
+        # per-model tabs (v1.6 layout/format)
         for n in filtered:
             db, schema, alias = model_relation_identifiers(n)
             alias_lower = (alias or '').lower()
@@ -412,7 +423,7 @@ def main():
             ws.freeze_panes = f"A{start_row+2}"
             # header style on (start_row+1) 1-based
             hdr = start_row + 1
-            for col_idx in range(1, 9):
+            for col_idx in range(1, 8+1):
                 c = ws.cell(row=hdr, column=col_idx)
                 c.fill = header_fill; c.font = header_font; c.alignment = Alignment(vertical="center")
             # wrap description cells
