@@ -200,30 +200,48 @@ def _camel_chunks(s: str):
 
 def _wrap_preserving_string(s: str, max_chars: int, max_lines: int = 2):
     """
-    Wrap by concatenating camel chunks WITHOUT separators until reaching max_chars.
-    Insert '\n' between lines. Ellipsis only if unavoidable.
+    Wrap camel/PascalCase text by inserting '\n' at boundaries.
+    - No spaces are inserted into the string.
+    - Produces up to `max_lines` lines.
+    - Adds an ellipsis only on the *last* line if chunks remain.
     """
     chunks = _camel_chunks(s)
-    if not chunks: return ['']
-    lines = []; cur = ''; i = 0
-    while i < len(chunks):
-        nxt = cur + chunks[i]
-        if len(nxt) <= max_chars or not cur:
-            cur = nxt; i += 1
-        else:
-            lines.append(cur); cur = ''
-            if len(lines) >= max_lines - 1:
+    if not chunks:
+        return ['']
+
+    lines = []
+    i = 0  # index of next chunk to consume
+
+    for line_idx in range(max_lines):
+        cur = ''
+        # fill this line with as many whole chunks as will fit
+        while i < len(chunks):
+            cand = cur + chunks[i]
+            if len(cand) <= max_chars or cur == '':
+                cur = cand
+                i += 1
+            else:
                 break
-    if cur and len(lines) < max_lines:
-        lines.append(cur)
-    # if leftovers remain, ellipsize last line
-    consumed_len = sum(len(l) for l in lines)
-    if consumed_len < len(''.join(chunks)):
+
+        if cur:  # we built something for this line
+            lines.append(cur)
+        else:
+            # even a single chunk is longer than max_chars; hard-truncate
+            lines.append((chunks[i][:max_chars-1] + '…') if max_chars > 1 else '…')
+            i += 1
+
+        # stop early if we consumed everything
+        if i >= len(chunks):
+            break
+
+    # if leftovers remain, ellipsize the last line to indicate truncation
+    if i < len(chunks):
         last = lines[-1]
-        if len(last) > max_chars:
+        if len(last) >= max_chars:
             lines[-1] = last[:max(1, max_chars-1)] + '…'
         else:
-            lines[-1] = (last[:max(1, max_chars-1)] + '…') if len(last) >= max_chars else last + '…'
+            lines[-1] = last + '…'
+
     return lines
 
 def _clip_to_circle(cx, cy, r, x, y):
