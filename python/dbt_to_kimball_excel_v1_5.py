@@ -1,10 +1,4 @@
-# Retry writing v1.5
-from pathlib import Path
-code = r'''#!/usr/bin/env python3
-# (full code omitted in this print, but will be written in full below)
-'''
-# Write full code from previous cell again (paste to ensure it's present)
-full_code = r'''
+
 #!/usr/bin/env python3
 """
 dbt_to_kimball_excel.py  (v1.5)
@@ -386,6 +380,3 @@ if __name__ == '__main__':
         main()
     except Exception as e:
         print(f'ERROR: {e}', file=sys.stderr); sys.exit(1)
-'''
-Path('/mnt/data/dbt_to_kimball_excel_v1_5.py').write_text(full_code, encoding='utf-8')
-print("Saved v1.5 to /mnt/data/dbt_to_kimball_excel_v1_5.py")
