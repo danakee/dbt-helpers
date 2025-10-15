@@ -339,8 +339,25 @@ def render_dim_lineage_png(manifest, dim_node, outfile, *,
                            font_scale=0.95,
                            include_sources=True,
                            include_seeds=True,
-                           max_depth=None):
-    """Render a per-dimension upstream lineage diagram to PNG using Graphviz."""
+                           max_depth=None,
+                           font_family='Segoe UI'):
+    """
+    Render a per-dimension upstream lineage diagram to PNG using Graphviz.
+
+    Args:
+        manifest: loaded dbt manifest.json (dict)
+        dim_node: the dimension model node (dict) from manifest['nodes']
+        outfile:  path to write the PNG (without extension; this function writes exactly `outfile`)
+        rankdir:  'LR' or 'TB' graph direction
+        cluster:  group nodes into Base/Stage/Dimension clusters
+        dpi:      render DPI
+        font_scale: scale factor for node/edge text
+        include_sources / include_seeds: include these upstream resource types
+        max_depth: None for unlimited; otherwise, max parent-edge depth from the dimension
+        font_family: font for nodes/edges/cluster labels (e.g., 'Segoe UI', 'Calibri', 'Arial')
+    Returns:
+        True if a PNG was written; False otherwise.
+    """
     if Digraph is None:
         return False
 
@@ -357,6 +374,7 @@ def render_dim_lineage_png(manifest, dim_node, outfile, *,
         include_sources=include_sources, include_seeds=include_seeds
     )
 
+    # Palette
     layer_colors = {
         'dimension': '#D9E1F2',  # light blue
         'stage':     '#E2EFDA',  # light green
@@ -367,13 +385,15 @@ def render_dim_lineage_png(manifest, dim_node, outfile, *,
         'other':     '#E7E6E6',  # light gray
     }
 
+    # --- Graph / node / edge styling ---
     g = Digraph(format='png')
     g.attr(rankdir=rankdir)
-    g.attr('graph', dpi=str(dpi))
+    g.attr('graph', dpi=str(dpi), fontname=font_family)
     fsize = str(int(10 * font_scale))
-    g.attr('node', shape='box', style='rounded,filled', fontname='Helvetica', fontsize=fsize)
-    g.attr('edge', arrowsize='0.7')
+    g.attr('node', shape='box', style='rounded,filled', fontname=font_family, fontsize=fsize)
+    g.attr('edge', arrowsize='0.7', fontname=font_family)
 
+    # --- Cluster subgraphs with crisp, bold titles ---
     clusters = None
     if cluster:
         clusters = {
@@ -381,13 +401,23 @@ def render_dim_lineage_png(manifest, dim_node, outfile, *,
             'stage':     Digraph(name='cluster_stage'),
             'base':      Digraph(name='cluster_base'),
         }
+        title_size = str(int(12 * font_scale))
         for cname, sub in clusters.items():
-            sub.attr(label=cname.capitalize(), color='#BBBBBB', fontsize=str(int(11*font_scale)))
+            sub.attr(
+                label=f'<<B>{cname.capitalize()}</B>>',  # HTML-like label for better weight rendering
+                fontname=font_family,
+                fontsize=title_size,
+                labelloc='t',        # top
+                labeljust='c',       # centered
+                color='#BBBBBB',     # border color
+                penwidth='1.2',
+                margin='12'          # padding so the title doesn't hug the border
+            )
 
     def _label(n):
         return (n.get('alias') or n.get('name') or '').strip('"') or n.get('unique_id')
 
-    # add nodes
+    # Add nodes
     for k in keep:
         n = all_nodes.get(k)
         if not n:
@@ -401,7 +431,7 @@ def render_dim_lineage_png(manifest, dim_node, outfile, *,
         else:
             g.node(node_id, label=label, fillcolor=color)
 
-    # add edges parent -> child
+    # Add edges parent -> child (upstream -> downstream)
     for k in keep:
         n = all_nodes.get(k)
         if not n:
@@ -410,10 +440,12 @@ def render_dim_lineage_png(manifest, dim_node, outfile, *,
             if p in keep:
                 g.edge(p, k)
 
+    # Assemble clusters
     if clusters:
         for sub in clusters.values():
             g.subgraph(sub)
 
+    # Render to PNG and normalize the filename to exactly `outfile`
     try:
         g.render(filename=outfile, cleanup=True)  # writes outfile + ".png"
         png = outfile + '.png'
@@ -748,7 +780,8 @@ def main():
     parser.add_argument('--dim-lineage-rankdir', choices=['LR','TB'], default='LR', help='Graph direction: LR=left-to-right, TB=top-to-bottom.')
     parser.add_argument('--dim-lineage-include-sources', dest='dim_lineage_include_sources', action='store_true', help='Include upstream sources (default True).')
     parser.add_argument('--dim-lineage-include-seeds', dest='dim_lineage_include_seeds', action='store_true', help='Include upstream seeds (default True).')
-
+    parser.add_argument('--dim-lineage-font', type=str, default='Segoe UI', help='Font family for lineage diagram labels (clusters/nodes).')
+    
     # Back-compat aliases for older commands that used "lineage" flags
     parser.add_argument('--lineage', dest='star_diagrams', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--lineage-diagram', dest='star_diagrams', action='store_true', help=argparse.SUPPRESS)
@@ -1242,7 +1275,8 @@ def main():
                         font_scale=args.diagram_font_scale,
                         include_sources=(True if not hasattr(args, 'dim_lineage_include_sources') else args.dim_lineage_include_sources or True),
                         include_seeds=(True if not hasattr(args, 'dim_lineage_include_seeds') else args.dim_lineage_include_seeds or True),
-                        max_depth=args.dim_lineage_depth
+                        max_depth=args.dim_lineage_depth,
+                        font_family=args.dim_lineage_font
                     )
                     if not wrote:
                         continue
