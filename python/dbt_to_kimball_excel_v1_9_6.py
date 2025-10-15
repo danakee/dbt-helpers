@@ -111,6 +111,7 @@ Changelog highlights
 
 """
 
+from html import parser
 import argparse, json, re, sys, fnmatch, math, tempfile, os
 from collections import defaultdict, OrderedDict
 from pathlib import Path
@@ -120,6 +121,11 @@ try:
     import yaml
 except Exception:
     yaml = None
+
+try:
+    from graphviz import Digraph
+except Exception:
+    Digraph = None
 
 from tempfile import TemporaryDirectory  # keep temp images alive until after save
 
@@ -270,6 +276,152 @@ def parse_csv_set(s: str):
     """CSV string -> set of lowercased tokens; empty on falsy input."""
     return {t.strip().lower() for t in (s.split(',') if s else []) if t.strip()}
 
+# =============================================================================
+# Lineage diagrams via Graphviz helpers
+# =============================================================================
+
+def _layer_of_node(n: dict) -> str:
+    """Return 'dimension'|'stage'|'base'|'other'|'source'|'seed'|'snapshot'."""
+    rt = n.get('resource_type')
+    if rt == 'source': return 'source'
+    if rt == 'seed': return 'seed'
+    if rt == 'snapshot': return 'snapshot'
+    if rt != 'model': return 'other'
+    name = (n.get('alias') or n.get('name') or '').lower()
+    tags = {t.lower() for t in (n.get('tags') or [])}
+    path = (n.get('path') or '').lower()
+    # Dimension via your heuristic
+    if classify_model_kind(name, tags) == 'Dimension':
+        return 'dimension'
+    # Stage/Base via path or tags
+    if path.startswith('models/stage/') or name.startswith('stage_') or ('stage' in tags):
+        return 'stage'
+    if path.startswith('models/base/') or name.startswith('base_') or ('base' in tags):
+        return 'base'
+    return 'other'
+
+def _collect_upstream_nodes(manifest, start_unique_id, *,
+                            max_depth=None,
+                            include_sources=True,
+                            include_seeds=True):
+    """Return set of unique_ids upstream of the start node (including start)."""
+    nodes = manifest.get('nodes', {})
+    sources = manifest.get('sources', {})
+    all_nodes = {**nodes, **sources}
+    visited = set()
+    stack = [(start_unique_id, 0)]
+    while stack:
+        uid, depth = stack.pop()
+        if uid in visited:
+            continue
+        visited.add(uid)
+        n = all_nodes.get(uid)
+        if not n:
+            continue
+        if max_depth is not None and depth >= max_depth:
+            continue
+        for p in (n.get('depends_on', {}) or {}).get('nodes', []) or []:
+            pn = all_nodes.get(p)
+            if not pn:
+                continue
+            prt = pn.get('resource_type')
+            if prt == 'source' and not include_sources:
+                continue
+            if prt == 'seed' and not include_seeds:
+                continue
+            stack.append((p, depth+1))
+    return visited
+
+def render_dim_lineage_png(manifest, dim_node, outfile, *,
+                           rankdir='LR',
+                           cluster=True,
+                           dpi=200,
+                           font_scale=0.95,
+                           include_sources=True,
+                           include_seeds=True,
+                           max_depth=None):
+    """Render a per-dimension upstream lineage diagram to PNG using Graphviz."""
+    if Digraph is None:
+        return False
+
+    nodes = manifest.get('nodes', {})
+    sources = manifest.get('sources', {})
+    all_nodes = {**nodes, **sources}
+
+    uid = dim_node.get('unique_id')
+    if not uid:
+        return False
+
+    keep = _collect_upstream_nodes(
+        manifest, uid, max_depth=max_depth,
+        include_sources=include_sources, include_seeds=include_seeds
+    )
+
+    layer_colors = {
+        'dimension': '#D9E1F2',  # light blue
+        'stage':     '#E2EFDA',  # light green
+        'base':      '#FFF2CC',  # light yellow
+        'source':    '#F8CBAD',  # light peach
+        'seed':      '#FCE4D6',  # light salmon
+        'snapshot':  '#DDD9C3',  # light tan
+        'other':     '#E7E6E6',  # light gray
+    }
+
+    g = Digraph(format='png')
+    g.attr(rankdir=rankdir)
+    g.attr('graph', dpi=str(dpi))
+    fsize = str(int(10 * font_scale))
+    g.attr('node', shape='box', style='rounded,filled', fontname='Helvetica', fontsize=fsize)
+    g.attr('edge', arrowsize='0.7')
+
+    clusters = None
+    if cluster:
+        clusters = {
+            'dimension': Digraph(name='cluster_dimension'),
+            'stage':     Digraph(name='cluster_stage'),
+            'base':      Digraph(name='cluster_base'),
+        }
+        for cname, sub in clusters.items():
+            sub.attr(label=cname.capitalize(), color='#BBBBBB', fontsize=str(int(11*font_scale)))
+
+    def _label(n):
+        return (n.get('alias') or n.get('name') or '').strip('"') or n.get('unique_id')
+
+    # add nodes
+    for k in keep:
+        n = all_nodes.get(k)
+        if not n:
+            continue
+        layer = _layer_of_node(n)
+        color = layer_colors.get(layer, '#E7E6E6')
+        node_id = k
+        label = _label(n)
+        if clusters and layer in clusters:
+            clusters[layer].node(node_id, label=label, fillcolor=color)
+        else:
+            g.node(node_id, label=label, fillcolor=color)
+
+    # add edges parent -> child
+    for k in keep:
+        n = all_nodes.get(k)
+        if not n:
+            continue
+        for p in (n.get('depends_on', {}) or {}).get('nodes', []) or []:
+            if p in keep:
+                g.edge(p, k)
+
+    if clusters:
+        for sub in clusters.values():
+            g.subgraph(sub)
+
+    try:
+        g.render(filename=outfile, cleanup=True)  # writes outfile + ".png"
+        png = outfile + '.png'
+        if os.path.exists(png):
+            os.replace(png, outfile)
+        return True
+    except Exception:
+        return False
 
 # =============================================================================
 # YAML overlays (preserve display casing + lowercase for matching)
@@ -588,6 +740,14 @@ def main():
     parser.add_argument('--diagram-legend', action='store_true')
     parser.add_argument('--diagram-no-wrap-labels', action='store_true')
     parser.add_argument('--diagram-max-label-chars', type=int, default=18)
+
+    # Lineage diagram flags (per-dimension diagrams)
+    parser.add_argument('--dim-lineage-diagrams', action='store_true', help='Generate per-dimension lineage diagrams (Graphviz).')
+    parser.add_argument('--dim-lineage-depth', type=int, default=None, help='Max upstream traversal depth from a dimension (None=unlimited).')
+    parser.add_argument('--dim-lineage-dpi', type=int, default=200, help='DPI for lineage PNGs.')
+    parser.add_argument('--dim-lineage-rankdir', choices=['LR','TB'], default='LR', help='Graph direction: LR=left-to-right, TB=top-to-bottom.')
+    parser.add_argument('--dim-lineage-include-sources', dest='dim_lineage_include_sources', action='store_true', help='Include upstream sources (default True).')
+    parser.add_argument('--dim-lineage-include-seeds', dest='dim_lineage_include_seeds', action='store_true', help='Include upstream seeds (default True).')
 
     # Back-compat aliases for older commands that used "lineage" flags
     parser.add_argument('--lineage', dest='star_diagrams', action='store_true', help=argparse.SUPPRESS)
