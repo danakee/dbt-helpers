@@ -36,7 +36,7 @@ Turns a compiled **dbt Core** project into a Kimball-style Excel workbook with:
    • **Bold** labels for both fact and dimensions.
    • FK column names printed along spokes (wrapped if long).
    • Two-ring layout if many dimensions (configurable).
-   • Sheet titles like **“Star-Fact FactOrderLine”** (safe & ≤31 chars).
+   • Sheet titles like **“Star-FactOrderLine”** (safe & ≤31 chars).
 
 Sheet tab style
 ---------------
@@ -1042,10 +1042,11 @@ def main():
                     if not drew:
                         continue
 
-                    # Prefer "Star-Fact <Fact>"; if unsafe characters, fall back to "Star Fact <Fact>"
-                    proposed = f"Star-Fact {fact_label}"
-                    if any(c in proposed for c in r'[]:*?\/'):
-                        proposed = f"Star Fact {fact_label}"
+                    # Propose a safe sheet name like "Star-FactOrderLine" (≤31 chars)
+                    clean_label = re.sub(r'[:\\\/\?\*\[\]]', '', fact_label)
+                    if not clean_label:  # ultra-defensive: if everything was stripped
+                        clean_label = "Fact"
+                    proposed = f"Star-{clean_label}"
                     sheet_name = safe_sheet_name(proposed, used)
 
                     # Create diagram sheet and drop the PNG at A1
