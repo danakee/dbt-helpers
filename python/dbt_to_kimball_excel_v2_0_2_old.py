@@ -95,8 +95,8 @@ Important flags & behavior
 
 (New) Tiering & lineage flags
 -----------------------------
-• --lineage                      : generate Lineage sheets (Lineage, Pipelines).
-• --lineage-diagrams             : also generate per-mart lineage diagrams (Matplotlib).
+• --lineage                      : generate Lineage and Pipelines sheets.
+• --lineage-diagrams             : also generate per-mart lineage diagrams.
 • Tier classification:
     By path globs:
       --tier-base-globs  "models/base/*,models/bronze/*"
@@ -108,12 +108,6 @@ Important flags & behavior
       --tier-mart-tags  mart
   If none provided, defaults to path-prefix heuristic:
     models/base/* → base, models/stage/* → stage, models/mart/* → mart.
-
-(Graphviz) Optional lineage rendering
--------------------------------------
-• --gv-lineage                   : generate per-mart lineage diagrams using Graphviz (in addition to sheets).
-• --gv-format png|svg            : output format for Graphviz images (default: png).
-  Requires Graphviz binaries on PATH (e.g., `dot -V`). Install with Winget/Chocolatey/MSI.
 
 Limitations / assumptions
 -------------------------
@@ -128,8 +122,6 @@ Changelog highlights
 2.0.2
   - Default tiering is more permissive: detects `/models/base/`, `/models/stage/`, `/models/mart/` anywhere in the path.
   - Lineage diagrams now render even if `Pipelines` is empty (fallback to iterate all mart models).
-  - (Add-on) Optional Graphviz lineage diagram generation via `--gv-lineage` and `--gv-format`.
-
 2.0.1
   - BUGFIX: Pipelines sheet no longer fails when there are no mart rows (safe empty handling & sorting).
   - Robust lineage-diagram loop against column-name drift.
@@ -172,7 +164,7 @@ def classify_model_kind(name: str, tags) -> str:
     return 'Other'
 
 def safe_sheet_name(base: str, used: set):
-    raw = (base or 'Sheet'). .strip()
+    raw = (base or 'Sheet').strip()
     cleaned = re.sub(r'[:\\\/\?\*\[\]]', '_', raw)[:31] or 'Sheet'
     used_lower = {u.lower() for u in used}
     candidate = cleaned; i = 1
@@ -268,14 +260,6 @@ def build_relationship_rows_with_deps(manifest):
 
 def parse_csv_set(s: str):
     return {t.strip().lower() for t in (s.split(',') if s else []) if t.strip()}
-
-# ---- NEW: Graphviz availability check ----
-def _has_graphviz():
-    try:
-        import graphviz  # noqa: F401
-        return True
-    except Exception:
-        return False
 
 
 # =============================================================================
@@ -586,86 +570,6 @@ def lineage_edges(manifest):
     return edges
 
 
-# ---- NEW: Graphviz lineage renderer ----
-def render_lineage_graphviz(
-    mart_alias: str,
-    alias_to_display: dict,
-    alias_to_tier: dict,
-    edges: list,
-    *,
-    out_path: str,
-    fmt: str = 'png'
-) -> bool:
-    """
-    Build a per-mart lineage diagram with Graphviz and write to out_path.<fmt>.
-    Returns True on success, False otherwise.
-    """
-    try:
-        import graphviz
-    except Exception:
-        return False
-
-    # Upstream closure from mart_alias
-    parents = defaultdict(set)
-    for u, v in edges:
-        parents[v].add(u)
-
-    upstream = set(); frontier = [mart_alias]
-    while frontier:
-        nxt = []
-        for x in frontier:
-            for p in parents.get(x, []):
-                if p in upstream: continue
-                upstream.add(p); nxt.append(p)
-        frontier = nxt
-
-    tiers = {'base': [], 'stage': [], 'mart': [mart_alias]}
-    for u in upstream:
-        t = alias_to_tier.get(u, 'other')
-        if t in ('base', 'stage', 'mart'):
-            tiers[t].append(u)
-
-    if not tiers['base'] and not tiers['stage']:
-        # no meaningful diagram
-        return False
-
-    # Colors (match your palette vibe)
-    face = {'base': '#D9E1F2', 'stage': '#E4D9F2', 'mart': '#FFF2CC'}
-    # Build graph
-    g = graphviz.Digraph('G', filename=out_path, format=fmt)
-    g.attr(rankdir='LR', bgcolor='white')
-
-    # Common node style
-    g.attr('node', shape='box', style='rounded,filled', color='#222222', fontname='Calibri', fontsize='10')
-
-    # Subgraphs per tier to enforce rank
-    def add_tier(tier_name, rank='same'):
-        with g.subgraph(name=f'cluster_{tier_name}') as c:
-            c.attr(rank=rank, color='white')  # hide cluster border
-            for a in tiers[tier_name]:
-                label = alias_to_display.get(a, a)
-                c.node(a, label=label, fillcolor=face[tier_name])
-
-    if tiers['base']:
-        add_tier('base', rank='same')
-    if tiers['stage']:
-        add_tier('stage', rank='same')
-    add_tier('mart', rank='same')
-
-    # Edges between nodes that are in our tiered set
-    keep = set(tiers['base']) | set(tiers['stage']) | set(tiers['mart'])
-    g.attr('edge', color='#7A7A7A', arrowsize='0.7')
-    for u, v in edges:
-        if u in keep and v in keep:
-            g.edge(u, v)
-
-    try:
-        g.render(cleanup=True)  # writes out_path + .<fmt>
-        return True
-    except Exception:
-        return False
-
-
 # =============================================================================
 # Main
 # =============================================================================
@@ -700,7 +604,7 @@ def main():
     parser.add_argument('--diagram-max-label-chars', type=int, default=18)
 
     # Lineage flags
-    parser.add_argument('--lineage', action='store_true', help='Generate Lineage sheets (Lineage, Pipelines).')
+    parser.add_argument('--lineage', action='store_true', help='Generate lineage sheets (Lineage, Pipelines).')
     parser.add_argument('--lineage-diagrams', action='store_true', help='Generate per-mart lineage diagrams.')
     parser.add_argument('--tier-base-globs', type=str, default='')
     parser.add_argument('--tier-stage-globs', type=str, default='')
@@ -708,12 +612,6 @@ def main():
     parser.add_argument('--tier-base-tags', type=str, default='')
     parser.add_argument('--tier-stage-tags', type=str, default='')
     parser.add_argument('--tier-mart-tags', type=str, default='')
-
-    # ---- NEW: Graphviz lineage flags ----
-    parser.add_argument('--gv-lineage', action='store_true',
-                        help='Use Graphviz to render lineage diagram tabs (PNG/SVG).')
-    parser.add_argument('--gv-format', choices=['png','svg'], default='png',
-                        help='Graphviz output format for lineage diagrams (default: png).')
 
     args = parser.parse_args()
 
@@ -1149,8 +1047,7 @@ def main():
                     font_scale=args.diagram_font_scale,
                     dpi=args.diagram_dpi,
                     color_scheme=args.diagram_color_scheme,
-                    wrap_labels=not args.diagram_no_wrap_label
-s,
+                    wrap_labels=not args.diagram_no_wrap_labels,
                     max_label_chars=max(10, args.diagram_max_label_chars),
                 )
                 if not drew:
@@ -1310,57 +1207,6 @@ s,
                         img = XLImage(png); ws.add_image(img, "A1")
                     except Exception:
                         pass
-
-        # ---- NEW: Graphviz lineage diagrams (optional) ----
-        if args.lineage and args.gv_lineage:
-            if _has_graphviz():
-                wb = writer.book
-                used = set(wb.sheetnames)
-                disp_to_alias = {v: k for k, v in alias_to_display.items()}
-
-                # Decide which marts to draw: Pipelines if present, else tier map
-                mart_list = []
-                if not df_pipes.empty and 'MartModel' in df_pipes.columns:
-                    mart_list = [str(m) for m in df_pipes['MartModel'].tolist() if str(m)]
-                else:
-                    mart_list = [alias_to_display.get(a, a) for a, t in alias_to_tier.items() if t == 'mart']
-
-                tmpdir_gv = tempfile.mkdtemp(prefix="gv_lineage_")
-                for mart_disp in mart_list:
-                    m_alias = disp_to_alias.get(mart_disp) or next(
-                        (a for d, a in disp_to_alias.items() if str(d).lower() == str(mart_disp).lower()),
-                        None
-                    )
-                    if not m_alias:
-                        continue
-                    out_base = os.path.join(tmpdir_gv, f"gv_lineage_{m_alias}")
-                    ok = render_lineage_graphviz(
-                        m_alias,
-                        alias_to_display=alias_to_display,
-                        alias_to_tier=alias_to_tier,
-                        edges=edges,
-                        out_path=out_base,
-                        fmt=args.gv_format,
-                    )
-                    if not ok:
-                        continue
-
-                    # Embed into a new sheet
-                    img_path = f"{out_base}.{args.gv_format}"
-                    proposed = f"Lineage-GV {mart_disp}"
-                    if any(c in proposed for c in r'[]:*?\/'):
-                        proposed = f"Lineage GV {mart_disp}"
-                    sheet_name = safe_sheet_name(proposed, used)
-
-                    ws = wb.create_sheet(title=sheet_name)
-                    ws.sheet_properties.tabColor = TAB_GREEN
-                    try:
-                        img = XLImage(img_path)
-                        ws.add_image(img, "A1")
-                    except Exception:
-                        pass
-            else:
-                print("NOTE: Skipping --gv-lineage diagrams because Graphviz is not available on PATH.", file=sys.stderr)
 
     print(f"Wrote: {args.out}")
 
