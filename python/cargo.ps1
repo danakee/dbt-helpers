@@ -1,0 +1,11 @@
+python dbt_to_kimball_excel.py `
+  --manifest .\target\manifest.json `
+  --catalog .\target\catalog.json `
+  --schemas ".\models\mart\schemas.yml,.\models\stage\schemas.yml" `
+  --star-diagrams `
+  --dim-lineage-diagrams `
+  --dim-lineage-rankdir LR `
+  --dim-lineage-depth 6 `
+  --diagram-font-scale 0.95 `
+  --dim-lineage-dpi 200 `
+  --out .\documentation\kimball_model_catalog.xlsx

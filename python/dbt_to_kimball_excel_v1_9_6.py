@@ -1224,6 +1224,48 @@ def main():
                         from openpyxl.styles import Alignment as _Alignment
                         ws["J2"].alignment = _Alignment(wrap_text=True)
 
+            # ----- Dimension lineage diagrams -----
+            if args.dim_lineage_diagrams:
+                wb = writer.book
+                used = set(wb.sheetnames)
+                for alias_lower, n in alias_to_node.items():
+                    if classify_model_kind(alias_lower, n.get('tags', [])) != 'Dimension':
+                        continue
+                    
+                    img_path = os.path.join(tmpdir, f"dim_lineage_{alias_lower}.png")
+                    wrote = render_dim_lineage_png(
+                        manifest, n, img_path,
+                        rankdir=args.dim_lineage_rankdir,
+                        cluster=True,
+                        dpi=args.dim_lineage_dpi,
+                        font_scale=args.diagram_font_scale,
+                        include_sources=(True if not hasattr(args, 'dim_lineage_include_sources') else args.dim_lineage_include_sources or True),
+                        include_seeds=(True if not hasattr(args, 'dim_lineage_include_seeds') else args.dim_lineage_include_seeds or True),
+                        max_depth=args.dim_lineage_depth
+                    )
+                    if not wrote:
+                        continue
+                    
+                    # Tab name: "Lineage-<DimModel>"
+                    dim_label = alias_to_display.get(alias_lower, alias_lower)
+                    clean_label = re.sub(r'[:\\\/\?\*\[\]]', '', dim_label) or "Dimension"
+                    proposed = f"Lineage-{clean_label}"
+                    sheet_name = safe_sheet_name(proposed, used)
+            
+                    ws = wb.create_sheet(title=sheet_name)
+                    ws.sheet_properties.tabColor = TAB_GREEN  # reuse green, or pick another hex
+                    try:
+                        img = XLImage(img_path)
+                        ws.add_image(img, "A1")
+                    except Exception:
+                        pass
+                    
+                    if args.diagram_legend:
+                        ws["J2"] = ("Dimension lineage: upstream dependencies grouped by layer.\n"
+                                    "Left-to-right flow shows parents on the left.")
+                        from openpyxl.styles import Alignment as _Alignment
+                        ws["J2"].alignment = _Alignment(wrap_text=True)
+
     print(f"Wrote: {args.out}")
 
 if __name__ == '__main__':
