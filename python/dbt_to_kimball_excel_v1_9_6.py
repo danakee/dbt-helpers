@@ -455,6 +455,145 @@ def render_dim_lineage_png(manifest, dim_node, outfile, *,
     except Exception:
         return False
 
+def render_fact_lineage_png(manifest, fact_node, outfile, *,
+                            rankdir='LR',
+                            cluster=True,
+                            dpi=200,
+                            font_scale=0.95,
+                            include_sources=True,
+                            include_seeds=True,
+                            max_depth=None,
+                            font_family='Segoe UI'):
+    """
+    Render a per-fact upstream lineage diagram to PNG using Graphviz,
+    EXCLUDING any Dimension models from the traversal (the fact itself is still shown).
+
+    Returns True if a PNG was written; False otherwise.
+    """
+    if Digraph is None:
+        return False
+
+    # Build a filtered upstream set that never walks into Dimension nodes.
+    nodes = manifest.get('nodes', {})
+    sources = manifest.get('sources', {})
+    all_nodes = {**nodes, **sources}
+
+    start_uid = fact_node.get('unique_id')
+    if not start_uid:
+        return False
+
+    keep = set()
+    stack = [(start_uid, 0)]
+    while stack:
+        uid, depth = stack.pop()
+        if uid in keep:
+            continue
+        n = all_nodes.get(uid)
+        if not n:
+            continue
+        keep.add(uid)
+
+        if max_depth is not None and depth >= max_depth:
+            continue
+
+        for p in (n.get('depends_on', {}) or {}).get('nodes', []) or []:
+            pn = all_nodes.get(p)
+            if not pn:
+                continue
+            layer = _layer_of_node(pn)
+            # Skip DIMENSION nodes entirely in fact lineage
+            if layer == 'dimension':
+                continue
+            prt = pn.get('resource_type')
+            if prt == 'source' and not include_sources:
+                continue
+            if prt == 'seed' and not include_seeds:
+                continue
+            stack.append((p, depth+1))
+
+    # Colors (reuse your palette)
+    layer_colors = {
+        'fact':      '#FFF2CC',  # light yellow
+        'stage':     '#E2EFDA',  # light green
+        'base':      '#D9E1F2',  # (swap if you prefer) light blue
+        'source':    '#F8CBAD',  # light peach
+        'seed':      '#FCE4D6',  # light salmon
+        'snapshot':  '#DDD9C3',  # light tan
+        'other':     '#E7E6E6',  # light gray
+    }
+
+    g = Digraph(format='png')
+    g.attr(rankdir=rankdir)
+    g.attr('graph', dpi=str(dpi), fontname=font_family)
+    fsize = str(int(10 * font_scale))
+    g.attr('node', shape='box', style='rounded,filled', fontname=font_family, fontsize=fsize)
+    g.attr('edge', arrowsize='0.7', fontname=font_family)
+
+    clusters = None
+    if cluster:
+        clusters = {
+            'fact':  Digraph(name='cluster_fact'),
+            'stage': Digraph(name='cluster_stage'),
+            'base':  Digraph(name='cluster_base'),
+        }
+        title_size = str(int(12 * font_scale))
+        for cname, sub in clusters.items():
+            sub.attr(
+                label=f'<<B>{cname.capitalize()}</B>>',
+                fontname=font_family,
+                fontsize=title_size,
+                labelloc='t',
+                labeljust='c',
+                color='#BBBBBB',
+                penwidth='1.2',
+                margin='12'
+            )
+
+    def _label(n):
+        return (n.get('alias') or n.get('name') or '').strip('"') or n.get('unique_id')
+
+    # Add nodes (map the starting fact to layer 'fact')
+    start_id = start_uid
+    for uid in keep:
+        n = all_nodes.get(uid)
+        if not n:
+            continue
+        layer = _layer_of_node(n)
+        if uid == start_id:
+            layer = 'fact'
+        color = layer_colors.get(layer, '#E7E6E6')
+        label = _label(n)
+        if clusters and layer in clusters:
+            clusters[layer].node(uid, label=label, fillcolor=color)
+        else:
+            g.node(uid, label=label, fillcolor=color)
+
+    # Add edges parent -> child among retained nodes
+    for uid in keep:
+        n = all_nodes.get(uid)
+        if not n:
+            continue
+        for p in (n.get('depends_on', {}) or {}).get('nodes', []) or []:
+            if p in keep:
+                # Also ensure the parent isn't a dimension (we never pushed them)
+                pn = all_nodes.get(p)
+                if pn and _layer_of_node(pn) == 'dimension':
+                    continue
+                g.edge(p, uid)
+
+    if clusters:
+        for sub in clusters.values():
+            g.subgraph(sub)
+
+    try:
+        g.render(filename=outfile, cleanup=True)  # writes outfile + ".png"
+        png = outfile + '.png'
+        if os.path.exists(png):
+            os.replace(png, outfile)
+        return True
+    except Exception:
+        return False
+
 # =============================================================================
 # YAML overlays (preserve display casing + lowercase for matching)
 # =============================================================================
@@ -773,15 +912,39 @@ def main():
     parser.add_argument('--diagram-no-wrap-labels', action='store_true')
     parser.add_argument('--diagram-max-label-chars', type=int, default=18)
 
-    # Lineage diagram flags (per-dimension diagrams)
-    parser.add_argument('--dim-lineage-diagrams', action='store_true', help='Generate per-dimension lineage diagrams (Graphviz).')
-    parser.add_argument('--dim-lineage-depth', type=int, default=None, help='Max upstream traversal depth from a dimension (None=unlimited).')
-    parser.add_argument('--dim-lineage-dpi', type=int, default=200, help='DPI for lineage PNGs.')
-    parser.add_argument('--dim-lineage-rankdir', choices=['LR','TB'], default='LR', help='Graph direction: LR=left-to-right, TB=top-to-bottom.')
-    parser.add_argument('--dim-lineage-include-sources', dest='dim_lineage_include_sources', action='store_true', help='Include upstream sources (default True).')
-    parser.add_argument('--dim-lineage-include-seeds', dest='dim_lineage_include_seeds', action='store_true', help='Include upstream seeds (default True).')
-    parser.add_argument('--dim-lineage-font', type=str, default='Segoe UI', help='Font family for lineage diagram labels (clusters/nodes).')
+    # Dimension lineage diagram flags (per-dimension diagrams)
+    parser.add_argument('--dim-lineage-diagrams', action='store_true', 
+                        help='Generate per-dimension lineage diagrams (Graphviz).')
+    parser.add_argument('--dim-lineage-depth', type=int, default=None, 
+                        help='Max upstream traversal depth from a dimension (None=unlimited).')
+    parser.add_argument('--dim-lineage-dpi', type=int, default=200, 
+                        help='DPI for lineage PNGs.')
+    parser.add_argument('--dim-lineage-rankdir', choices=['LR','TB'], default='LR', 
+                        help='Graph direction: LR=left-to-right, TB=top-to-bottom.')
+    parser.add_argument('--dim-lineage-include-sources', dest='dim_lineage_include_sources', action='store_true', 
+                        help='Include upstream sources (default True).')
+    parser.add_argument('--dim-lineage-include-seeds', dest='dim_lineage_include_seeds', action='store_true', 
+                        help='Include upstream seeds (default True).')
+    parser.add_argument('--dim-lineage-font', type=str, default='Segoe UI', 
+                        help='Font family for lineage diagram labels (clusters/nodes).')
     
+    # Fact lineage diagram flags (per-fact diagrams)
+    parser.add_argument('--fact-lineage-diagrams', action='store_true',
+                        help='Generate per-fact upstream lineage diagrams (exclude dimensions).')
+    parser.add_argument('--fact-lineage-depth', type=int, default=None,
+                        help='Max upstream depth for fact lineage (None = unlimited).')
+    parser.add_argument('--fact-lineage-dpi', type=int, default=200,
+                        help='DPI for fact lineage PNGs.')
+    parser.add_argument('--fact-lineage-rankdir', choices=['LR','TB'], default='LR',
+                        help='Graph direction for fact lineage.')
+    parser.add_argument('--fact-lineage-include-sources', dest='fact_lineage_include_sources',
+                        action='store_true', help='Include upstream sources in fact lineage (default True).')
+    parser.add_argument('--fact-lineage-include-seeds', dest='fact_lineage_include_seeds',
+                        action='store_true', help='Include upstream seeds in fact lineage (default True).')
+    parser.add_argument('--fact-lineage-font', type=str, default='Segoe UI',
+                        help='Font family for fact lineage diagrams.')
+    parser.set_defaults(fact_lineage_include_sources=True, fact_lineage_include_seeds=True)
+
     # Back-compat aliases for older commands that used "lineage" flags
     parser.add_argument('--lineage', dest='star_diagrams', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--lineage-diagram', dest='star_diagrams', action='store_true', help=argparse.SUPPRESS)
@@ -897,11 +1060,12 @@ def main():
     alt_fill = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")    # green-bar
 
     # ---- Sheet tab colors (hex RGB without '#') ----
-    TAB_BLUE   = "5B9BD5"  # Summary / Relationships / Star Map / Others
-    TAB_PURPLE = "C9C2F3"  # Dimension model tabs
-    TAB_PEACH  = "F8CBAD"  # Fact model tabs
-    TAB_GREEN  = "A9D18E"  # Star diagram tabs
-    TAB_YELLOW = "FFD966"  # Lineage diagram tabs
+    TAB_BLUE    = "5B9BD5"  # Summary / Relationships / Star Map / Others
+    TAB_PURPLE  = "C9C2F3"  # Dimension model tabs
+    TAB_PEACH   = "F8CBAD"  # Fact model tabs
+    TAB_GREEN   = "A9D18E"  # Star diagram tabs
+    TAB_YELLOW  = "FFFF99"  # Dimension lineage diagram tabs
+    TAB_MAGENTA = "FF99FF"  # Fact lineage diagram tabs
 
     def style_table(ws, top_header_row: int, width_map: dict, wrap_cols: list, freeze=True):
         """
@@ -1298,6 +1462,48 @@ def main():
                     if args.diagram_legend:
                         ws["J2"] = ("Dimension lineage: upstream dependencies grouped by layer.\n"
                                     "Left-to-right flow shows parents on the left.")
+                        from openpyxl.styles import Alignment as _Alignment
+                        ws["J2"].alignment = _Alignment(wrap_text=True)
+
+            # ----- Fact lineage diagrams (Graphviz; exclude dimensions) -----
+            if args.fact_lineage_diagrams:
+                wb = writer.book
+                used = set(wb.sheetnames)
+                for alias_lower, n in alias_to_node.items():
+                    if classify_model_kind(alias_lower, n.get('tags', [])) != 'Fact':
+                        continue
+                    
+                    img_path = os.path.join(tmpdir, f"fact_lineage_{alias_lower}.png")
+                    wrote = render_fact_lineage_png(
+                        manifest, n, img_path,
+                        rankdir=args.fact_lineage_rankdir,
+                        cluster=True,
+                        dpi=args.fact_lineage_dpi,
+                        font_scale=args.diagram_font_scale,
+                        include_sources=args.fact_lineage_include_sources,
+                        include_seeds=args.fact_lineage_include_seeds,
+                        max_depth=args.fact_lineage_depth,
+                        font_family=args.fact_lineage_font
+                    )
+                    if not wrote:
+                        continue
+                    
+                    fact_label = alias_to_display.get(alias_lower, alias_lower)
+                    clean_label = re.sub(r'[:\\\/\?\*\[\]]', '', fact_label) or "Fact"
+                    proposed = f"Lineage-{clean_label}"   # or "FactLineage-<Fact>"
+                    sheet_name = safe_sheet_name(proposed, used)
+
+                    ws = wb.create_sheet(title=sheet_name)
+                    ws.sheet_properties.tabColor = TAB_MAGENTA
+                    try:
+                        img = XLImage(img_path)
+                        ws.add_image(img, "A1")
+                    except Exception:
+                        pass
+                    
+                    if args.diagram_legend:
+                        ws["J2"] = ("Fact lineage (upstream only): shows Base/Stage/Sources/Seeds. "
+                                    "Dimension models are intentionally excluded.")
                         from openpyxl.styles import Alignment as _Alignment
                         ws["J2"].alignment = _Alignment(wrap_text=True)
 
