@@ -868,6 +868,7 @@ def main():
     TAB_PURPLE = "C9C2F3"  # Dimension model tabs
     TAB_PEACH  = "F8CBAD"  # Fact model tabs
     TAB_GREEN  = "A9D18E"  # Star diagram tabs
+    TAB_YELLOW = "FFD966"  # Lineage diagram tabs
 
     def style_table(ws, top_header_row: int, width_map: dict, wrap_cols: list, freeze=True):
         """
@@ -1253,7 +1254,7 @@ def main():
                     sheet_name = safe_sheet_name(proposed, used)
             
                     ws = wb.create_sheet(title=sheet_name)
-                    ws.sheet_properties.tabColor = TAB_GREEN  # reuse green, or pick another hex
+                    ws.sheet_properties.tabColor = TAB_YELLOW
                     try:
                         img = XLImage(img_path)
                         ws.add_image(img, "A1")
