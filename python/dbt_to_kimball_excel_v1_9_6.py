@@ -945,11 +945,6 @@ def main():
                         help='Font family for fact lineage diagrams.')
     parser.set_defaults(fact_lineage_include_sources=True, fact_lineage_include_seeds=True)
 
-    # Back-compat aliases for older commands that used "lineage" flags
-    parser.add_argument('--lineage', dest='star_diagrams', action='store_true', help=argparse.SUPPRESS)
-    parser.add_argument('--lineage-diagram', dest='star_diagrams', action='store_true', help=argparse.SUPPRESS)
-    parser.add_argument('--lineage-diagrams', dest='star_diagrams', action='store_true', help=argparse.SUPPRESS)
-
     args = parser.parse_args()
 
     # Warn if schema overlays were requested but PyYAML isn't available
