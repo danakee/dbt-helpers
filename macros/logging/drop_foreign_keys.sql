@@ -46,8 +46,10 @@
                     " as table " ~ referencing_schema ~ "." ~ referencing_table ~ " does not exist",
                     info=False) -%}
 
-                {# Optional: record a 'Skipped' row in the log table for auditability #}
-                {%- set _skip_insert -%}
+                {# Log a 'Skipped' row without setting OperationStatus directly (avoid CHECK violation) #}
+                {%- set _skip_block -%}
+                    DECLARE @ProcessGUID uniqueidentifier = NEWID();
+
                     INSERT INTO [SimulationsAnalyticsLogging].[dbo].[ForeignKeyOperationLog]
                     (
                         [InvocationGUID],
@@ -56,26 +58,30 @@
                         [SourceObject],
                         [TargetObject],
                         [Operation],
-                        [OperationStatus],
-                        [StartTime],
-                        [EndTime],
-                        [ErrorMessage]
+                        [StartTime]
                     )
                     VALUES
                     (
                         '{{ invocation_id }}',
-                        NEWID(),
+                        @ProcessGUID,
                         '{{ fk_name }}',
                         '{{ referencing_schema }}.{{ referencing_table }}',
                         '{{ schema_name }}.{{ table_name }}',
                         'DROP',
-                        'Skipped',
-                        sysdatetimeoffset(),
-                        sysdatetimeoffset(),
-                        'Child table missing'
+                        sysdatetimeoffset()
                     );
+
+                    UPDATE [SimulationsAnalyticsLogging].[dbo].[ForeignKeyOperationLog]
+                    SET
+                        [OperationStatus] = 'Skipped',
+                        [EndTime]         = sysdatetimeoffset(),
+                        [ErrorMessage]    = 'Child table missing'
+                    WHERE
+                        [InvocationGUID]   = '{{ invocation_id }}'
+                        AND [ProcessGUID]  = @ProcessGUID
+                        AND [ForeignKeyName] = '{{ fk_name }}';
                 {%- endset -%}
-                {%- do run_query(_skip_insert) -%}
+                {%- do run_query(_skip_block) -%}
                 {%- continue -%}
             {%- endif -%}
 
@@ -84,9 +90,9 @@
                 DECLARE @ProcessGUID     uniqueidentifier = NEWID();
                 DECLARE @FKDropStatus    nvarchar(20);
                 DECLARE @FKErrorMessage  nvarchar(4000);
-                SET @FKDropStatus = 'Attempted';
+                SET @FKDropStatus = 'Started';  -- value is ignored on insert (we do not insert OperationStatus)
 
-                -- Log the attempt
+                -- Log the attempt (no OperationStatus set here → avoids CHECK)
                 INSERT INTO [SimulationsAnalyticsLogging].[dbo].[ForeignKeyOperationLog]
                 (
                     [InvocationGUID],
@@ -95,7 +101,6 @@
                     [SourceObject],
                     [TargetObject],
                     [Operation],
-                    [OperationStatus],
                     [StartTime]
                 )
                 VALUES
@@ -106,7 +111,6 @@
                     '{{ referencing_schema }}.{{ referencing_table }}',
                     '{{ schema_name }}.{{ table_name }}',
                     'DROP',
-                    @FKDropStatus,
                     sysdatetimeoffset()
                 );
 
