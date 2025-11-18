@@ -81,13 +81,19 @@ Write-Host ""
 
 # 3. Scan "plain" text files
 Write-Host "Scanning text files..."
+
 $textFiles = Get-ChildItem -Path $RootPath -Recurse -File -ErrorAction SilentlyContinue |
              Where-Object {
                  $textExtensions -contains $_.Extension -and
                  ($excludeDirs -notcontains $_.Directory.Name)
              }
 
+$tfCount = 0
 foreach ($file in $textFiles) {
+    $tfCount++
+    # --- progress output for each text file ---
+    Write-Host ("[TEXT {0}] {1}" -f $tfCount, $file.FullName)
+
     try {
         Select-String -Path $file.FullName `
                       -Pattern $Patterns `
@@ -110,6 +116,7 @@ foreach ($file in $textFiles) {
 }
 
 # 4. Scan .docx / .pbix as zip-like containers
+Write-Host ""
 Write-Host "Scanning .docx and .pbix containers..."
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
@@ -120,7 +127,12 @@ $zipLikeFiles = Get-ChildItem -Path $RootPath -Recurse -File -ErrorAction Silent
                     ($excludeDirs -notcontains $_.Directory.Name)
                 }
 
+$zfCount = 0
 foreach ($file in $zipLikeFiles) {
+    $zfCount++
+    # --- progress output for each container file ---
+    Write-Host ("[ZIP  {0}] {1}" -f $zfCount, $file.FullName)
+
     try {
         $fs  = [System.IO.File]::OpenRead($file.FullName)
         $zip = New-Object System.IO.Compression.ZipArchive($fs)
