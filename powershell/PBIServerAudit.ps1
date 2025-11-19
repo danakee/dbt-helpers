@@ -19,43 +19,63 @@ function Get-DataSourcesRecursive {
     return $results
 }
 
+Write-Host "Scanning for data sources..." -ForegroundColor Cyan
 $allDataSources = Get-DataSourcesRecursive -Path "/" -Proxy $rs
 
+Write-Host "Found $($allDataSources.Count) data sources. Retrieving connection strings..." -ForegroundColor Cyan
+
 $auditResults = foreach ($ds in $allDataSources) {
+    Write-Host "Processing: $($ds.Path)" -ForegroundColor Gray
+    
     try {
         $dsContent = $rs.GetDataSourceContents($ds.Path)
         $cs = $dsContent.ConnectString
         
         # Extract server
-        $server = if ($cs -match "server\s*=\s*([^;]+)|data\s*source\s*=\s*([^;]+)") {
-            ($matches[1] ?? $matches[2]).Trim()
-        } else { "Unknown" }
+        $server = "Unknown"
+        if ($cs -match "server\s*=\s*([^;]+)") {
+            $server = $matches[1].Trim()
+        }
+        elseif ($cs -match "data\s*source\s*=\s*([^;]+)") {
+            $server = $matches[1].Trim()
+        }
         
         # Extract username
-        $username = if ($cs -match "user\s*id\s*=\s*([^;]+)|uid\s*=\s*([^;]+)|user\s*=\s*([^;]+)") {
-            ($matches[1] ?? $matches[2] ?? $matches[3]).Trim()
-        } elseif ($dsContent.UserName) {
-            $dsContent.UserName
-        } else { "Integrated/None" }
+        $username = "Integrated/None"
+        if ($cs -match "user\s*id\s*=\s*([^;]+)") {
+            $username = $matches[1].Trim()
+        }
+        elseif ($cs -match "uid\s*=\s*([^;]+)") {
+            $username = $matches[1].Trim()
+        }
+        elseif ($cs -match "user\s*=\s*([^;]+)") {
+            $username = $matches[1].Trim()
+        }
+        elseif ($dsContent.UserName) {
+            $username = $dsContent.UserName
+        }
         
         # Check for password in connection string
-        $hasPasswordInCS = $cs -match "password\s*=(?!\s*\*)|pwd\s*=(?!\s*\*)"
+        $hasPasswordInCS = $cs -match "password\s*=(?!\s*\*)" -or $cs -match "pwd\s*=(?!\s*\*)"
         
         # Check for risky usernames
         $riskyUsernames = @('sa', 'admin', 'administrator', 'root', 'dbo', 'sysadmin')
         $isRiskyUsername = $riskyUsernames -contains $username.ToLower()
         
         # Check authentication type
-        $authType = if ($cs -match "integrated\s*security\s*=\s*true|trusted_connection\s*=\s*yes" -or 
-                        $dsContent.CredentialRetrieval -eq "Integrated") {
-            "Windows"
-        } elseif ($dsContent.CredentialRetrieval -eq "Store" -or 
-                  $cs -match "user\s*id\s*=|uid\s*=") {
-            "SQL"
-        } elseif ($dsContent.CredentialRetrieval -eq "Prompt") {
-            "Prompt"
-        } else {
-            "None"
+        $authType = "None"
+        if ($cs -match "integrated\s*security\s*=\s*true" -or 
+            $cs -match "trusted_connection\s*=\s*yes" -or 
+            $dsContent.CredentialRetrieval -eq "Integrated") {
+            $authType = "Windows"
+        }
+        elseif ($dsContent.CredentialRetrieval -eq "Store" -or 
+                $cs -match "user\s*id\s*=" -or 
+                $cs -match "uid\s*=") {
+            $authType = "SQL"
+        }
+        elseif ($dsContent.CredentialRetrieval -eq "Prompt") {
+            $authType = "Prompt"
         }
         
         [PSCustomObject]@{
@@ -85,26 +105,34 @@ New-Item -Path "C:\Audits" -ItemType Directory -Force | Out-Null
 $auditResults | Export-Csv -Path "C:\Audits\ConnectionStrings_Full.csv" -NoTypeInformation
 
 # Generate compliance report
+$totalCount = $auditResults.Count
+$credTypeBreakdown = $auditResults | Group-Object CredentialType | ForEach-Object { "  $($_.Name): $($_.Count)" }
+$authTypeBreakdown = $auditResults | Group-Object AuthType | ForEach-Object { "  $($_.Name): $($_.Count)" }
+$passwordInCS = ($auditResults | Where-Object HasPasswordInCS | Measure-Object).Count
+$riskyUsers = ($auditResults | Where-Object IsRiskyUsername | Measure-Object).Count
+$storedCreds = ($auditResults | Where-Object UsesStoredCreds | Measure-Object).Count
+$sqlAuth = ($auditResults | Where-Object {$_.AuthType -eq 'SQL'} | Measure-Object).Count
+
 $report = @"
 ========================================
 POWER BI DATA SOURCE SECURITY AUDIT
 Generated: $(Get-Date)
 ========================================
 
-TOTAL DATA SOURCES: $($auditResults.Count)
+TOTAL DATA SOURCES: $totalCount
 
 CREDENTIAL TYPE BREAKDOWN:
-$($auditResults | Group-Object CredentialType | Format-Table Count, Name -AutoSize | Out-String)
+$($credTypeBreakdown -join "`n")
 
 AUTHENTICATION TYPE BREAKDOWN:
-$($auditResults | Group-Object AuthType | Format-Table Count, Name -AutoSize | Out-String)
+$($authTypeBreakdown -join "`n")
 
 HIGH RISK FINDINGS:
 -------------------
-Passwords in Connection Strings: $($auditResults | Where-Object HasPasswordInCS | Measure-Object | Select-Object -ExpandProperty Count)
-Risky Usernames (sa, admin, etc): $($auditResults | Where-Object IsRiskyUsername | Measure-Object | Select-Object -ExpandProperty Count)
-Stored Credentials: $($auditResults | Where-Object UsesStoredCreds | Measure-Object | Select-Object -ExpandProperty Count)
-SQL Authentication: $($auditResults | Where-Object {$_.AuthType -eq 'SQL'} | Measure-Object | Select-Object -ExpandProperty Count)
+Passwords in Connection Strings: $passwordInCS
+Risky Usernames (sa, admin, etc): $riskyUsers
+Stored Credentials: $storedCreds
+SQL Authentication: $sqlAuth
 
 RECOMMENDATIONS:
 1. Use Windows Authentication (Integrated Security) wherever possible
@@ -113,7 +141,7 @@ RECOMMENDATIONS:
 4. Use stored credentials only when necessary and rotate regularly
 5. Consolidate to service accounts per server to reduce credential sprawl
 
-DETAILED FINDINGS:
+========================================
 "@
 
 $report | Out-File "C:\Audits\SecurityAuditReport.txt"
@@ -123,7 +151,20 @@ Write-Host "`n=== HIGH RISK DATA SOURCES ===" -ForegroundColor Red
 $highRisk = $auditResults | Where-Object {
     $_.HasPasswordInCS -or $_.IsRiskyUsername -or ($_.UsesStoredCreds -and $_.AuthType -eq "SQL")
 }
-$highRisk | Format-Table Name, Server, Username, AuthType, HasPasswordInCS, IsRiskyUsername
 
-Write-Host "`nFull audit exported to C:\Audits\ConnectionStrings_Full.csv"
-Write-Host "Security report saved to C:\Audits\SecurityAuditReport.txt"
+if ($highRisk) {
+    $highRisk | Format-Table Name, Server, Username, AuthType, HasPasswordInCS, IsRiskyUsername -AutoSize
+}
+else {
+    Write-Host "No high-risk data sources found!" -ForegroundColor Green
+}
+
+# Summary
+Write-Host "`n=== SUMMARY ===" -ForegroundColor Cyan
+Write-Host "Total Data Sources: $totalCount"
+Write-Host "High Risk Items: $($highRisk.Count)" -ForegroundColor $(if ($highRisk.Count -gt 0) { "Red" } else { "Green" })
+Write-Host "SQL Authentication: $sqlAuth" -ForegroundColor $(if ($sqlAuth -gt 0) { "Yellow" } else { "Green" })
+Write-Host "Windows Authentication: $(($auditResults | Where-Object {$_.AuthType -eq 'Windows'} | Measure-Object).Count)" -ForegroundColor Green
+
+Write-Host "`nFull audit exported to C:\Audits\ConnectionStrings_Full.csv" -ForegroundColor Cyan
+Write-Host "Security report saved to C:\Audits\SecurityAuditReport.txt" -ForegroundColor Cyan
