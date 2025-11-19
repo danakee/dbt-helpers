@@ -1,9 +1,0 @@
-{
-  "servers": {
-    "datamate": {
-      "url": "http://localhost:7700/sse",
-      "type": "sse",
-      "updatedAt": "2025-11-19T13:06:33.664Z"
-    }
-  }
-}
