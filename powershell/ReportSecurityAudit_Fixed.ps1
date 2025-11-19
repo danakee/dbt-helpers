@@ -1,6 +1,6 @@
 # ========================================
 # POWER BI REPORT SERVER - REPORT SECURITY AUDIT
-# Fixed XML Parsing Version
+# Enhanced XML Parsing Version
 # ========================================
 
 $reportServerUri = "http://your-pbirs-server/ReportServer/ReportService2010.asmx?wsdl"
@@ -26,6 +26,48 @@ function Get-ReportsRecursive {
     return $results
 }
 
+function Parse-ReportDefinition {
+    param(
+        [byte[]]$ReportDefBytes,
+        [string]$ReportPath
+    )
+    
+    try {
+        # Try UTF8 first
+        $rdlText = [System.Text.Encoding]::UTF8.GetString($ReportDefBytes)
+        
+        # Clean the text
+        $rdlText = $rdlText.Trim()
+        
+        # Remove BOM if present
+        if ($rdlText[0] -eq [char]0xFEFF) {
+            $rdlText = $rdlText.Substring(1)
+        }
+        
+        # Try to parse as XML
+        $rdlXml = New-Object System.Xml.XmlDocument
+        $rdlXml.LoadXml($rdlText)
+        
+        return $rdlXml
+    }
+    catch {
+        # If UTF8 fails, try other encodings
+        try {
+            $rdlText = [System.Text.Encoding]::Default.GetString($ReportDefBytes)
+            $rdlText = $rdlText.Trim()
+            
+            $rdlXml = New-Object System.Xml.XmlDocument
+            $rdlXml.LoadXml($rdlText)
+            
+            return $rdlXml
+        }
+        catch {
+            Write-Warning "Cannot parse XML for $ReportPath : $_"
+            return $null
+        }
+    }
+}
+
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "POWER BI REPORT SECURITY AUDIT" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
@@ -35,6 +77,9 @@ Write-Host "Scanning for reports..." -ForegroundColor Cyan
 $allReports = Get-ReportsRecursive -Path "/" -Proxy $rs
 Write-Host "Found $($allReports.Count) reports to analyze" -ForegroundColor Green
 Write-Host ""
+
+$successCount = 0
+$errorCount = 0
 
 $reportAudit = foreach ($report in $allReports) {
     Write-Host "Analyzing: $($report.Path)" -ForegroundColor Gray
@@ -52,137 +97,124 @@ $reportAudit = foreach ($report in $allReports) {
     $hasUnsafeExpressions = $false
     $hasSubreports = $false
     $subreportCount = 0
+    $parseError = $false
     
     try {
         # Get report definition
         $reportDef = $rs.GetItemDefinition($report.Path)
-        $rdlText = [System.Text.Encoding]::UTF8.GetString($reportDef)
         
-        # Clean the XML - remove BOM and problematic characters
-        $rdlText = $rdlText.Trim()
-        # Remove BOM if present
-        if ($rdlText.StartsWith([char]0xFEFF)) {
-            $rdlText = $rdlText.Substring(1)
-        }
+        # Parse the XML using our robust function
+        $rdlXml = Parse-ReportDefinition -ReportDefBytes $reportDef -ReportPath $report.Path
         
-        # Parse XML with better error handling
-        try {
-            [xml]$rdlXml = $rdlText
+        if ($rdlXml -eq $null) {
+            $parseError = $true
+            $errorCount++
         }
-        catch {
-            Write-Warning "XML parse error for $($report.Path): $_"
-            # Skip this report if XML won't parse
-            [PSCustomObject]@{
-                ReportName = $report.Name
-                ReportPath = $report.Path
-                HasEmbeddedDataSources = $false
-                EmbeddedDataSourceCount = 0
-                HasEmbeddedCredentials = $false
-                EmbeddedCredTypes = "XML_PARSE_ERROR"
-                HasCustomCode = $false
-                HasExternalImages = $false
-                ExternalImageCount = 0
-                HasParameters = $false
-                ParameterCount = 0
-                HasPotentialInjection = $false
-                HasSubreports = $false
-                SubreportCount = 0
-                ModifiedBy = $report.ModifiedBy
-                ModifiedDate = $report.ModifiedDate
-            }
-            continue
-        }
-        
-        # Check for data sources
-        if ($rdlXml.Report.DataSources) {
-            $allDataSources = $rdlXml.Report.DataSources.DataSource
+        else {
+            $successCount++
             
-            if ($allDataSources) {
-                # Ensure it's an array
-                if ($allDataSources -isnot [System.Array]) {
-                    $allDataSources = @($allDataSources)
-                }
+            # Check for data sources
+            if ($rdlXml.Report.DataSources) {
+                $allDataSources = $rdlXml.Report.DataSources.DataSource
                 
-                # Check each data source
-                foreach ($ds in $allDataSources) {
-                    # Embedded = has ConnectionProperties
-                    # Shared = has DataSourceReference
-                    if ($ds.ConnectionProperties) {
-                        $hasEmbeddedDataSources = $true
-                        $embeddedDSCount++
-                        
-                        $connString = $ds.ConnectionProperties.ConnectString
-                        if ($connString) {
-                            # Check for password in connection string
-                            if ($connString -match "password\s*=|pwd\s*=") {
-                                $hasEmbeddedCreds = $true
-                            }
+                if ($allDataSources) {
+                    # Ensure it's an array
+                    if ($allDataSources -isnot [System.Array]) {
+                        $allDataSources = @($allDataSources)
+                    }
+                    
+                    # Check each data source
+                    foreach ($ds in $allDataSources) {
+                        # Embedded = has ConnectionProperties
+                        # Shared = has DataSourceReference
+                        if ($ds.ConnectionProperties) {
+                            $hasEmbeddedDataSources = $true
+                            $embeddedDSCount++
                             
-                            # Determine credential type
-                            if ($ds.ConnectionProperties.IntegratedSecurity -eq "true") {
-                                $credentialTypes += "Integrated"
-                            }
-                            elseif ($ds.ConnectionProperties.Prompt) {
-                                $credentialTypes += "Prompt"
-                            }
-                            else {
-                                $credentialTypes += "Stored/Embedded"
+                            $connString = $ds.ConnectionProperties.ConnectString
+                            if ($connString) {
+                                # Check for password in connection string
+                                if ($connString -match "password\s*=|pwd\s*=") {
+                                    $hasEmbeddedCreds = $true
+                                }
+                                
+                                # Determine credential type
+                                if ($ds.ConnectionProperties.IntegratedSecurity -eq "true") {
+                                    $credentialTypes += "Integrated"
+                                }
+                                elseif ($ds.ConnectionProperties.Prompt) {
+                                    $credentialTypes += "Prompt"
+                                }
+                                else {
+                                    $credentialTypes += "Stored/Embedded"
+                                }
                             }
                         }
                     }
-                    # If it has DataSourceReference, it's a shared data source (GOOD)
                 }
             }
-        }
-        
-        # Check for custom code
-        if ($rdlXml.Report.Code) {
-            $codeContent = $rdlXml.Report.Code.Trim()
-            if ($codeContent -ne "") {
-                $hasCustomCode = $true
+            
+            # Check for custom code
+            if ($rdlXml.Report.Code) {
+                $codeContent = $rdlXml.Report.Code.ToString().Trim()
+                if ($codeContent -ne "") {
+                    $hasCustomCode = $true
+                }
+            }
+            
+            # Check for external images
+            try {
+                $externalImageNodes = $rdlXml.SelectNodes("//Image[@Source='External']")
+                if ($externalImageNodes) {
+                    $externalImageCount = $externalImageNodes.Count
+                    $hasExternalImages = $externalImageCount -gt 0
+                }
+            }
+            catch {
+                # Ignore XPath errors
+            }
+            
+            # Check for parameters
+            if ($rdlXml.Report.ReportParameters.ReportParameter) {
+                $params = $rdlXml.Report.ReportParameters.ReportParameter
+                if ($params -isnot [System.Array]) {
+                    $params = @($params)
+                }
+                $parameterCount = $params.Count
+                $hasParameters = $parameterCount -gt 0
+            }
+            
+            # Check for unsafe parameter expressions (SQL injection risk)
+            $rdlContent = $rdlXml.InnerXml
+            if ($rdlContent -match '=.*Parameters!.*\+\s*"' -or 
+                $rdlContent -match '=.*Parameters!.*&amp;\s*"') {
+                $hasUnsafeExpressions = $true
+            }
+            
+            # Check for subreports
+            try {
+                $subreportNodes = $rdlXml.SelectNodes("//Subreport")
+                if ($subreportNodes) {
+                    $subreportCount = $subreportNodes.Count
+                    $hasSubreports = $subreportCount -gt 0
+                }
+            }
+            catch {
+                # Ignore XPath errors
             }
         }
-        
-        # Check for external images
-        $externalImageNodes = $rdlXml.SelectNodes("//Image[@Source='External']")
-        if ($externalImageNodes) {
-            $externalImageCount = $externalImageNodes.Count
-            $hasExternalImages = $externalImageCount -gt 0
-        }
-        
-        # Check for parameters
-        if ($rdlXml.Report.ReportParameters.ReportParameter) {
-            $params = $rdlXml.Report.ReportParameters.ReportParameter
-            if ($params -isnot [System.Array]) {
-                $params = @($params)
-            }
-            $parameterCount = $params.Count
-            $hasParameters = $parameterCount -gt 0
-        }
-        
-        # Check for unsafe parameter expressions (SQL injection risk)
-        $rdlContent = $rdlXml.InnerXml
-        if ($rdlContent -match '=.*Parameters!.*\+\s*"' -or 
-            $rdlContent -match '=.*Parameters!.*&amp;\s*"') {
-            $hasUnsafeExpressions = $true
-        }
-        
-        # Check for subreports
-        $subreportNodes = $rdlXml.SelectNodes("//Subreport")
-        if ($subreportNodes) {
-            $subreportCount = $subreportNodes.Count
-            $hasSubreports = $subreportCount -gt 0
-        }
-        
     }
     catch {
         Write-Warning "Error analyzing $($report.Path): $_"
+        $parseError = $true
+        $errorCount++
     }
     
-    # Output the result with explicit types
+    # Output the result
     [PSCustomObject]@{
         ReportName = $report.Name
         ReportPath = $report.Path
+        ParsedSuccessfully = [bool](-not $parseError)
         HasEmbeddedDataSources = [bool]$hasEmbeddedDataSources
         EmbeddedDataSourceCount = [int]$embeddedDSCount
         HasEmbeddedCredentials = [bool]$hasEmbeddedCreds
@@ -204,18 +236,19 @@ $reportAudit = foreach ($report in $allReports) {
 New-Item -Path "C:\Audits" -ItemType Directory -Force | Out-Null
 
 # Export results
-$reportAudit | Export-Csv -Path "C:\Audits\ReportSecurityAudit_Fixed.csv" -NoTypeInformation
+$reportAudit | Export-Csv -Path "C:\Audits\ReportSecurityAudit_Final.csv" -NoTypeInformation
 
 # Calculate statistics
 $totalReports = $reportAudit.Count
+$successfullyParsed = ($reportAudit | Where-Object {$_.ParsedSuccessfully -eq $true}).Count
+$failedToParse = $totalReports - $successfullyParsed
 $withEmbeddedDS = ($reportAudit | Where-Object {$_.HasEmbeddedDataSources -eq $true}).Count
-$withSharedDS = $totalReports - $withEmbeddedDS
+$withSharedDS = $successfullyParsed - $withEmbeddedDS
 $withEmbeddedCreds = ($reportAudit | Where-Object {$_.HasEmbeddedCredentials -eq $true}).Count
 $withCustomCode = ($reportAudit | Where-Object {$_.HasCustomCode -eq $true}).Count
 $withExternalImages = ($reportAudit | Where-Object {$_.HasExternalImages -eq $true}).Count
 $withPotentialInjection = ($reportAudit | Where-Object {$_.HasPotentialInjection -eq $true}).Count
 $withSubreports = ($reportAudit | Where-Object {$_.HasSubreports -eq $true}).Count
-$withErrors = ($reportAudit | Where-Object {$_.EmbeddedCredTypes -eq "XML_PARSE_ERROR"}).Count
 
 # Generate detailed report
 $reportSecReport = @"
@@ -224,8 +257,9 @@ POWER BI REPORT SECURITY AUDIT
 Generated: $(Get-Date)
 ========================================
 
-TOTAL REPORTS ANALYZED: $totalReports
-Reports with XML Parse Errors: $withErrors
+TOTAL REPORTS: $totalReports
+Successfully Parsed: $successfullyParsed
+Parse Errors: $failedToParse
 
 DATA SOURCE FINDINGS:
 ---------------------
@@ -240,42 +274,38 @@ Reports with External Images: $withExternalImages
 Reports with Potential SQL Injection: $withPotentialInjection
 Reports with Subreports: $withSubreports
 
+NOTE ON PARSE ERRORS:
+---------------------
+$failedToParse reports could not be parsed. Common causes:
+- Corrupted RDL files
+- Non-standard report formats
+- Power BI Desktop reports (.pbix) - not RDL format
+- Reports with encoding issues
+
+These reports are included in the CSV with ParsedSuccessfully=False
+and should be manually reviewed if they are critical.
+
 RISK EXPLANATIONS:
 ------------------
 
 1. EMBEDDED DATA SOURCES ($withEmbeddedDS reports)
    RISK: Bypass centralized credential management
-   - Hard to audit and rotate credentials
-   - Inconsistent security practices
-   - Each report manages its own connection
    ACTION: Convert to shared data sources
    
 2. EMBEDDED CREDENTIALS ($withEmbeddedCreds reports)
    RISK: Passwords stored in report definitions
-   - Can be extracted by anyone with edit access
-   - Not centrally managed or rotated
-   - Visible in report XML
    ACTION: Remove immediately, use shared data sources
    
 3. CUSTOM CODE ($withCustomCode reports)
    RISK: VB.NET code execution
-   - Could access file system or network
-   - Difficult to audit what code does
-   - May have security vulnerabilities
    ACTION: Review all custom code, document purpose
    
 4. EXTERNAL IMAGES ($withExternalImages reports)
    RISK: Content loaded from external URLs
-   - Could be compromised or changed
-   - Tracking/privacy concerns
-   - Availability dependent on external site
    ACTION: Review URLs, consider embedding images
    
 5. SQL INJECTION ($withPotentialInjection reports)
    RISK: Parameter concatenation in expressions
-   - Parameters directly concatenated into SQL
-   - Could allow SQL injection attacks
-   - Bypasses proper parameterization
    ACTION: Rewrite queries to use proper parameters
 
 RECOMMENDATIONS:
@@ -285,11 +315,12 @@ RECOMMENDATIONS:
 3. MEDIUM: Review and document all custom code usage
 4. MEDIUM: Audit parameter usage for SQL injection risks
 5. LOW: Review external image references
+6. ONGOING: Manually review reports that failed to parse
 
 ========================================
 "@
 
-$reportSecReport | Out-File "C:\Audits\ReportSecurityReport_Fixed.txt"
+$reportSecReport | Out-File "C:\Audits\ReportSecurityReport_Final.txt"
 
 # Display summary
 Write-Host ""
@@ -297,9 +328,11 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "AUDIT COMPLETE" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Total Reports Analyzed: $totalReports" -ForegroundColor White
-if ($withErrors -gt 0) {
-    Write-Host "XML Parse Errors: $withErrors" -ForegroundColor Yellow
+Write-Host "Total Reports: $totalReports" -ForegroundColor White
+Write-Host "Successfully Parsed: $successfullyParsed" -ForegroundColor Green
+if ($failedToParse -gt 0) {
+    Write-Host "Parse Errors: $failedToParse" -ForegroundColor Yellow
+    Write-Host "(These reports should be manually reviewed)" -ForegroundColor Gray
 }
 Write-Host ""
 Write-Host "Data Source Analysis:" -ForegroundColor Cyan
@@ -317,9 +350,11 @@ Write-Host ""
 # Show high-risk reports
 Write-Host "=== HIGH RISK REPORTS ===" -ForegroundColor Red
 $highRiskReports = $reportAudit | Where-Object {
-    $_.HasEmbeddedCredentials -eq $true -or 
-    $_.HasCustomCode -eq $true -or 
-    $_.HasPotentialInjection -eq $true
+    $_.ParsedSuccessfully -eq $true -and (
+        $_.HasEmbeddedCredentials -eq $true -or 
+        $_.HasCustomCode -eq $true -or 
+        $_.HasPotentialInjection -eq $true
+    )
 }
 
 if ($highRiskReports) {
@@ -331,8 +366,17 @@ else {
     Write-Host "No high-risk reports found!" -ForegroundColor Green
 }
 
+# Show reports that failed to parse
+if ($failedToParse -gt 0) {
+    Write-Host ""
+    Write-Host "=== REPORTS WITH PARSE ERRORS ===" -ForegroundColor Yellow
+    $failedReports = $reportAudit | Where-Object {$_.ParsedSuccessfully -eq $false}
+    $failedReports | Format-Table ReportName, ReportPath -AutoSize
+    Write-Host "These $failedToParse reports should be manually reviewed." -ForegroundColor Gray
+}
+
 Write-Host ""
 Write-Host "Output Files:" -ForegroundColor Cyan
-Write-Host "  Full audit: C:\Audits\ReportSecurityAudit_Fixed.csv" -ForegroundColor White
-Write-Host "  Summary report: C:\Audits\ReportSecurityReport_Fixed.txt" -ForegroundColor White
+Write-Host "  Full audit: C:\Audits\ReportSecurityAudit_Final.csv" -ForegroundColor White
+Write-Host "  Summary report: C:\Audits\ReportSecurityReport_Final.txt" -ForegroundColor White
 Write-Host ""
