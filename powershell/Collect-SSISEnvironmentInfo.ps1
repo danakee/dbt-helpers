@@ -20,8 +20,6 @@
   Optional base path/prefix for output files.
   If omitted, a prefix like ".\SsisEnv_<MACHINENAME>_yyyyMMdd_HHmmss"
   will be created in the current directory.
-
-  Example: -OutputPrefix 'C:\Temp\SsisEnv_DEV01'
 #>
 
 param(
@@ -121,7 +119,6 @@ function Get-VstaInfo {
 # Helper: Get SSIS VSIX (extension)     #
 #---------------------------------------#
 function Get-SsisVsixInfo {
-    # SSIS Projects usually shows as a separate installed program
     $patterns = @(
         '*SQL Server Integration Services Projects*',
         '*Integration Services Projects 2022*'
@@ -144,7 +141,7 @@ function Get-Vs2022Info {
         return [PSCustomObject]@{
             Found     = $false
             Message   = "vswhere.exe not found. Visual Studio 2022 may not be installed."
-            Instances = $null
+            Instances = @()
         }
     }
 
@@ -160,7 +157,7 @@ function Get-Vs2022Info {
         return [PSCustomObject]@{
             Found     = $false
             Message   = "vswhere.exe failed: $($_.Exception.Message)"
-            Instances = $null
+            Instances = @()
         }
     }
 
@@ -168,7 +165,7 @@ function Get-Vs2022Info {
         return [PSCustomObject]@{
             Found     = $false
             Message   = "vswhere.exe returned no VS 2022 instances."
-            Instances = $null
+            Instances = @()
         }
     }
 
@@ -177,7 +174,7 @@ function Get-Vs2022Info {
         return [PSCustomObject]@{
             Found     = $false
             Message   = "vswhere JSON parse succeeded but no VS 2022 instances were found."
-            Instances = $null
+            Instances = @()
         }
     }
 
@@ -218,7 +215,6 @@ function Get-DotNetFramework4Info {
     $props   = Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue
     $release = $props.Release
 
-    # Mapping of Release DWORD to human-friendly version.
     $map = @{
         378389 = '4.5'
         378675 = '4.5.1'
@@ -289,42 +285,42 @@ $result = [PSCustomObject]@{
     DotNet4          = $dotNetInfo
 }
 
-# Output to console for quick inspection
+# Show summary object in console
 $result
 
 #-------------------------------#
 # File output (TXT + JSON + CSV)
 #-------------------------------#
 
-# If no prefix supplied, create a default one in the current directory.
+# Default prefix in current directory if none supplied
 if (-not $OutputPrefix -or $OutputPrefix.Trim().Length -eq 0) {
     $ts = Get-Date -Format 'yyyyMMdd_HHmmss'
     $baseName = "SsisEnv_$($hostInfo.MachineName)_$ts"
     $OutputPrefix = Join-Path (Get-Location) $baseName
 }
 
-# Build file paths
 $txtPath  = "$OutputPrefix.txt"
 $jsonPath = "$OutputPrefix.json"
 $ssisCsv  = "$OutputPrefix_SsisInstalled.csv"
 $vstaCsv  = "$OutputPrefix_Vsta.csv"
 $vsCsv    = "$OutputPrefix_VS2022.csv"
 
-# 1) JSON – full raw object
+# 1) JSON
 $result | ConvertTo-Json -Depth 6 | Set-Content -Path $jsonPath -Encoding UTF8
 
-# 2) CSVs for tabular bits
-if ($result.SsisInstalled) {
+# 2) CSVs
+if ($result.SsisInstalled -and $result.SsisInstalled.Count -gt 0) {
     $result.SsisInstalled | Export-Csv -Path $ssisCsv -NoTypeInformation -Encoding UTF8
 }
-if ($result.Vsta) {
+if ($result.Vsta -and $result.Vsta.Count -gt 0) {
     $result.Vsta | Export-Csv -Path $vstaCsv -NoTypeInformation -Encoding UTF8
 }
-if ($result.VisualStudio2022.Found -and $result.VisualStudio2022.Instances) {
-    $result.VisualStudio2022.Instances | Export-Csv -Path $vsCsv -NoTypeInformation -Encoding UTF8
+if ($result.VisualStudio2022.Found -and $result.VisualStudio2022.Instances.Count -gt 0) {
+    $result.VisualStudio2022.Instances |
+        Export-Csv -Path $vsCsv -NoTypeInformation -Encoding UTF8
 }
 
-# 3) Human-readable TXT summary
+# 3) Human-readable TXT
 $lines = @()
 
 $lines += "=== SSIS / VS / VSTA Environment Info ==="
@@ -346,20 +342,22 @@ $lines += ($result.SqlServer.SqlServerVersion | Out-String).TrimEnd()
 $lines += ""
 
 $lines += "---- SSIS Installed ----"
-if ($result.SsisInstalled) {
-    $lines += ($result.SsisInstalled | Format-Table DisplayName,DisplayVersion,Publisher -AutoSize | Out-String).TrimEnd()
+if ($result.SsisInstalled -and $result.SsisInstalled.Count -gt 0) {
+    $lines += ($result.SsisInstalled |
+               Format-Table DisplayName,DisplayVersion,Publisher -AutoSize |
+               Out-String).TrimEnd()
 } else {
     $lines += "(none found)"
 }
 $lines += ""
 
 $lines += "---- Visual Studio 2022 ----"
-if ($result.VisualStudio2022.Found -and $result.VisualStudio2022.Instances) {
+if ($result.VisualStudio2022.Found -and $result.VisualStudio2022.Instances.Count -gt 0) {
     $lines += ($result.VisualStudio2022.Instances |
                Format-Table installationName,installationVersion,installationPath,ProductDisplayName -AutoSize |
                Out-String).TrimEnd()
 } else {
-    $lines += "Found : $($result.VisualStudio2022.Found)"
+    $lines += "Found  : $($result.VisualStudio2022.Found)"
     $lines += "Message: $($result.VisualStudio2022.Message)"
 }
 $lines += ""
@@ -375,7 +373,7 @@ if ($result.SsisVsix) {
 $lines += ""
 
 $lines += "---- VSTA (Visual Studio Tools for Applications) ----"
-if ($result.Vsta) {
+if ($result.Vsta -and $result.Vsta.Count -gt 0) {
     $lines += ($result.Vsta |
                Format-Table DisplayName,DisplayVersion,Publisher -AutoSize |
                Out-String).TrimEnd()
@@ -391,9 +389,13 @@ $lines += "Version : $($result.DotNet4.Version)"
 
 $lines -join [Environment]::NewLine | Set-Content -Path $txtPath -Encoding UTF8
 
+# 4) Summarize created files
+$files = @()
+foreach ($p in @($txtPath, $jsonPath, $ssisCsv, $vstaCsv, $vsCsv)) {
+    if (Test-Path $p) { $files += $p }
+}
+
 Write-Host "Results written to:" -ForegroundColor Green
-Write-Host "  $txtPath"
-Write-Host "  $jsonPath"
-if (Test-Path $ssisCsv) { Write-Host "  $ssisCsv" }
-if (Test-Path $vstaCsv) { Write-Host "  $vstaCsv" }
-if (Test-Path $vsCsv)   { Write-Host "  $vsCsv" }
+foreach ($f in $files) {
+    Write-Host "  $f"
+}
