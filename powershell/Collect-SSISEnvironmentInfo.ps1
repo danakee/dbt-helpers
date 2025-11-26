@@ -292,6 +292,9 @@ $result
 # File output (TXT + JSON + CSV)
 #-------------------------------#
 
+# (Optional) clean up any stray .csv file that might be left from older versions/tests
+Remove-Item ".csv" -ErrorAction SilentlyContinue
+
 # Default prefix in current directory if none supplied
 if (-not $OutputPrefix -or $OutputPrefix.Trim().Length -eq 0) {
     $ts = Get-Date -Format 'yyyyMMdd_HHmmss'
@@ -299,11 +302,11 @@ if (-not $OutputPrefix -or $OutputPrefix.Trim().Length -eq 0) {
     $OutputPrefix = Join-Path (Get-Location) $baseName
 }
 
-$txtPath  = "$OutputPrefix.txt"
-$jsonPath = "$OutputPrefix.json"
-$ssisCsv  = "$OutputPrefix_SsisInstalled.csv"
-$vstaCsv  = "$OutputPrefix_Vsta.csv"
-$vsCsv    = "$OutputPrefix_VS2022.csv"
+$txtPath  = "${OutputPrefix}.txt"
+$jsonPath = "${OutputPrefix}.json"
+$ssisCsv  = "${OutputPrefix}_SsisInstalled.csv"
+$vstaCsv  = "${OutputPrefix}_Vsta.csv"
+$vsCsv    = "${OutputPrefix}_VS2022.csv"
 
 # 1) JSON
 $result | ConvertTo-Json -Depth 6 | Set-Content -Path $jsonPath -Encoding UTF8
@@ -389,13 +392,10 @@ $lines += "Version : $($result.DotNet4.Version)"
 
 $lines -join [Environment]::NewLine | Set-Content -Path $txtPath -Encoding UTF8
 
-# 4) Summarize created files
-$files = @()
-foreach ($p in @($txtPath, $jsonPath, $ssisCsv, $vstaCsv, $vsCsv)) {
-    if (Test-Path $p) { $files += $p }
-}
-
-Write-Host "Results written to:" -ForegroundColor Green
-foreach ($f in $files) {
-    Write-Host "  $f"
-}
+# 4) Summarize created files (explicit labels)
+Write-Host "Results written by Collect-SSISEnvironmentInfo.ps1:" -ForegroundColor Green
+if (Test-Path $txtPath)  { Write-Host "  TXT : $txtPath" }
+if (Test-Path $jsonPath) { Write-Host "  JSON: $jsonPath" }
+if (Test-Path $ssisCsv)  { Write-Host "  CSV : $ssisCsv (SSIS installed)" }
+if (Test-Path $vstaCsv)  { Write-Host "  CSV : $vstaCsv (VSTA)" }
+if (Test-Path $vsCsv)    { Write-Host "  CSV : $vsCsv (VS 2022 instances)" }
