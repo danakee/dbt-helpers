@@ -10,8 +10,7 @@
   Outputs a PowerShell object to the console and (optionally) to JSON/CSV files.
 
 .PARAMETER SqlInstance
-  SQL Server instance name or connection string target.
-  Default: "localhost"
+  SQL Server instance name (or "localhost" on dev machines).
 
 .PARAMETER OutputPrefix
   Optional base path/prefix for JSON/CSV output files.
@@ -34,9 +33,9 @@ function Get-SqlServerVersion {
     )
 
     $result = [PSCustomObject]@{
-        Instance          = $Instance
-        SqlServerVersion  = $null
-        Error             = $null
+        Instance         = $Instance
+        SqlServerVersion = $null
+        Error            = $null
     }
 
     try {
@@ -86,10 +85,9 @@ function Get-InstalledProgramsLike {
 # Helper: Get SSIS components  #
 #------------------------------#
 function Get-SsisInfo {
-    # Look for Integration Services / SSIS items in installed programs.
+    # Be more specific so we don't pick up "SupportAssist", etc.
     $patterns = @(
-        '*Integration Services*',
-        '*SSIS*'
+        'SQL Server *Integration Services*'
     )
 
     $items = Get-InstalledProgramsLike -NamePatterns $patterns
@@ -116,8 +114,8 @@ function Get-VstaInfo {
 # Helper: Get SSIS VSIX (extension)     #
 #---------------------------------------#
 function Get-SsisVsixInfo {
-    # The SSIS Projects extension usually shows as a separate installed program
-    # like "SQL Server Integration Services Projects 2022".
+    # SSIS Projects usually shows as a separate installed program
+    # e.g., "Microsoft SQL Server Integration Services Projects"
     $patterns = @(
         '*SQL Server Integration Services Projects*',
         '*Integration Services Projects 2022*'
@@ -135,25 +133,54 @@ function Get-SsisVsixInfo {
 #------------------------------#
 function Get-Vs2022Info {
     $vswherePath = Join-Path "${env:ProgramFiles(x86)}" "Microsoft Visual Studio\Installer\vswhere.exe"
+
     if (-not (Test-Path $vswherePath)) {
         return [PSCustomObject]@{
-            Found        = $false
-            Message      = "vswhere.exe not found. Visual Studio 2022 may not be installed."
-            RawResult    = $null
+            Found     = $false
+            Message   = "vswhere.exe not found. Visual Studio 2022 may not be installed."
+            Instances = $null
         }
     }
 
-    $json = & $vswherePath -version "[17.0,18.0)" -products * -format json 2>$null
-    if (-not $json) {
+    # Query all VS instances in the 17.x range (VS 2022)
+    try {
+        $json = & $vswherePath `
+            -all `
+            -prerelease `
+            -products * `
+            -format json `
+            -version "[17.0,18.0)" 2>$null
+    }
+    catch {
         return [PSCustomObject]@{
-            Found        = $false
-            Message      = "No VS 2022 instances returned by vswhere."
-            RawResult    = $null
+            Found     = $false
+            Message   = "vswhere.exe failed: $($_.Exception.Message)"
+            Instances = $null
+        }
+    }
+
+    if (-not $json -or $json.Trim().Length -eq 0 -or $json.Trim() -eq '[]') {
+        return [PSCustomObject]@{
+            Found     = $false
+            Message   = "vswhere.exe returned no VS 2022 instances."
+            Instances = $null
         }
     }
 
     $instances = $json | ConvertFrom-Json
-    # Typically you’ll only have one VS 2022; keep them all just in case.
+    if (-not $instances) {
+        return [PSCustomObject]@{
+            Found     = $false
+            Message   = "vswhere JSON parse succeeded but no VS 2022 instances were found."
+            Instances = $null
+        }
+    }
+
+    # Normalize to an array even if a single instance
+    if ($instances -isnot [System.Collections.IEnumerable] -or $instances -is [string]) {
+        $instances = @($instances)
+    }
+
     $simplified = $instances | Select-Object `
         instanceId,
         installationName,
@@ -183,11 +210,11 @@ function Get-DotNetFramework4Info {
         }
     }
 
-    $props = Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue
+    $props   = Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue
     $release = $props.Release
 
-    # Basic mapping of Release DWORD to human friendly version.
-    # (Not exhaustive, but good enough for common modern versions.)
+    # Mapping of Release DWORD to human-friendly version.
+    # This won't always be perfect, but it's good enough to tell 4.7 vs 4.8+.
     $map = @{
         378389 = '4.5'
         378675 = '4.5.1'
@@ -208,6 +235,7 @@ function Get-DotNetFramework4Info {
         528040 = '4.8'
         533320 = '4.8.1'
         533325 = '4.8.1'
+        # Future / newer builds (like 533509) will fall back to the "Unknown" label below.
     }
 
     $version = $map[$release]
@@ -239,23 +267,23 @@ function Get-HostInfo {
 # Main collection               #
 #-------------------------------#
 
-$hostInfo        = Get-HostInfo
-$sqlInfo         = Get-SqlServerVersion -Instance $SqlInstance
-$ssisInfo        = Get-SsisInfo
-$vsInfo          = Get-Vs2022Info
-$ssisVsixInfo    = Get-SsisVsixInfo
-$vstaInfo        = Get-VstaInfo
-$dotNetInfo      = Get-DotNetFramework4Info
+$hostInfo     = Get-HostInfo
+$sqlInfo      = Get-SqlServerVersion -Instance $SqlInstance
+$ssisInfo     = Get-SsisInfo
+$vsInfo       = Get-Vs2022Info
+$ssisVsixInfo = Get-SsisVsixInfo
+$vstaInfo     = Get-VstaInfo
+$dotNetInfo   = Get-DotNetFramework4Info
 
 $result = [PSCustomObject]@{
-    Timestamp         = (Get-Date)
-    Host              = $hostInfo
-    SqlServer         = $sqlInfo
-    SsisInstalled     = $ssisInfo.SsisEntries
-    VisualStudio2022  = $vsInfo
-    SsisVsix          = $ssisVsixInfo.SsisVsixEntries
-    Vsta              = $vstaInfo.VstaEntries
-    DotNet4           = $dotNetInfo
+    Timestamp        = Get-Date
+    Host             = $hostInfo
+    SqlServer        = $sqlInfo
+    SsisInstalled    = $ssisInfo.SsisEntries
+    VisualStudio2022 = $vsInfo
+    SsisVsix         = $ssisVsixInfo.SsisVsixEntries
+    Vsta             = $vstaInfo.VstaEntries
+    DotNet4          = $dotNetInfo
 }
 
 # Output to console for quick inspection
@@ -264,14 +292,14 @@ $result
 # Optional: write to files if OutputPrefix is provided
 if ($OutputPrefix) {
     $jsonPath = "$OutputPrefix.json"
-    $csvPath  = "$OutputPrefix_SsisInstalled.csv"
+    $ssisCsv  = "$OutputPrefix_SsisInstalled.csv"
     $vstaCsv  = "$OutputPrefix_Vsta.csv"
     $vsCsv    = "$OutputPrefix_VS2022.csv"
 
     $result | ConvertTo-Json -Depth 6 | Set-Content -Path $jsonPath -Encoding UTF8
 
     if ($result.SsisInstalled) {
-        $result.SsisInstalled | Export-Csv -Path $csvPath -NoTypeInformation -Encoding UTF8
+        $result.SsisInstalled | Export-Csv -Path $ssisCsv -NoTypeInformation -Encoding UTF8
     }
     if ($result.Vsta) {
         $result.Vsta | Export-Csv -Path $vstaCsv -NoTypeInformation -Encoding UTF8
@@ -282,7 +310,7 @@ if ($OutputPrefix) {
 
     Write-Host "Results written to:" -ForegroundColor Green
     Write-Host "  $jsonPath"
-    if (Test-Path $csvPath) { Write-Host "  $csvPath" }
+    if (Test-Path $ssisCsv) { Write-Host "  $ssisCsv" }
     if (Test-Path $vstaCsv) { Write-Host "  $vstaCsv" }
     if (Test-Path $vsCsv)   { Write-Host "  $vsCsv" }
 }
