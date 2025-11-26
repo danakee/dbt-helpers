@@ -85,7 +85,7 @@ function Get-InstalledProgramsLike {
 # Helper: Get SSIS components  #
 #------------------------------#
 function Get-SsisInfo {
-    # Be more specific so we don't pick up "SupportAssist", etc.
+    # Be specific so we don't pick up "SupportAssist", etc.
     $patterns = @(
         'SQL Server *Integration Services*'
     )
@@ -115,7 +115,6 @@ function Get-VstaInfo {
 #---------------------------------------#
 function Get-SsisVsixInfo {
     # SSIS Projects usually shows as a separate installed program
-    # e.g., "Microsoft SQL Server Integration Services Projects"
     $patterns = @(
         '*SQL Server Integration Services Projects*',
         '*Integration Services Projects 2022*'
@@ -142,7 +141,6 @@ function Get-Vs2022Info {
         }
     }
 
-    # Query all VS instances in the 17.x range (VS 2022)
     try {
         $json = & $vswherePath `
             -all `
@@ -176,7 +174,7 @@ function Get-Vs2022Info {
         }
     }
 
-    # Normalize to an array even if a single instance
+    # Normalize to an array even if there is only one instance
     if ($instances -isnot [System.Collections.IEnumerable] -or $instances -is [string]) {
         $instances = @($instances)
     }
@@ -214,7 +212,6 @@ function Get-DotNetFramework4Info {
     $release = $props.Release
 
     # Mapping of Release DWORD to human-friendly version.
-    # This won't always be perfect, but it's good enough to tell 4.7 vs 4.8+.
     $map = @{
         378389 = '4.5'
         378675 = '4.5.1'
@@ -235,7 +232,6 @@ function Get-DotNetFramework4Info {
         528040 = '4.8'
         533320 = '4.8.1'
         533325 = '4.8.1'
-        # Future / newer builds (like 533509) will fall back to the "Unknown" label below.
     }
 
     $version = $map[$release]
