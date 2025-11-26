@@ -18,7 +18,7 @@
 
 .PARAMETER OutputPrefix
   Optional base path/prefix for output files.
-  If omitted, a prefix like ".\SsisEnv_<MACHINENAME>_yyyyMMdd_HHmmss"
+  If omitted, a prefix like ".\SSISEnv_<MACHINENAME>_yyyyMMdd_HHmmss"
   will be created in the current directory.
 #>
 
@@ -89,7 +89,7 @@ function Get-InstalledProgramsLike {
 #------------------------------#
 # Helper: Get SSIS components  #
 #------------------------------#
-function Get-SsisInfo {
+function Get-SSISInfo {
     # Be specific so we don't pick up unrelated products.
     $patterns = @(
         'SQL Server *Integration Services*'
@@ -98,7 +98,7 @@ function Get-SsisInfo {
     $items = Get-InstalledProgramsLike -NamePatterns $patterns
 
     [PSCustomObject]@{
-        SsisEntries = $items
+        SSISEntries = $items
     }
 }
 
@@ -118,7 +118,7 @@ function Get-VstaInfo {
 #---------------------------------------#
 # Helper: Get SSIS VSIX (extension)     #
 #---------------------------------------#
-function Get-SsisVsixInfo {
+function Get-SSISVsixInfo {
     $patterns = @(
         '*SQL Server Integration Services Projects*',
         '*Integration Services Projects 2022*'
@@ -127,7 +127,7 @@ function Get-SsisVsixInfo {
     $items = Get-InstalledProgramsLike -NamePatterns $patterns
 
     [PSCustomObject]@{
-        SsisVsixEntries = $items
+        SSISVsixEntries = $items
     }
 }
 
@@ -268,9 +268,9 @@ function Get-HostInfo {
 
 $hostInfo     = Get-HostInfo
 $sqlInfo      = Get-SqlServerVersion -Instance $SqlInstance
-$ssisInfo     = Get-SsisInfo
+$ssisInfo     = Get-SSISInfo
 $vsInfo       = Get-Vs2022Info
-$ssisVsixInfo = Get-SsisVsixInfo
+$ssisVsixInfo = Get-SSISVsixInfo
 $vstaInfo     = Get-VstaInfo
 $dotNetInfo   = Get-DotNetFramework4Info
 
@@ -278,9 +278,9 @@ $result = [PSCustomObject]@{
     Timestamp        = Get-Date
     Host             = $hostInfo
     SqlServer        = $sqlInfo
-    SsisInstalled    = $ssisInfo.SsisEntries
+    SSISInstalled    = $ssisInfo.SSISEntries
     VisualStudio2022 = $vsInfo
-    SsisVsix         = $ssisVsixInfo.SsisVsixEntries
+    SSISVsix         = $ssisVsixInfo.SSISVsixEntries
     Vsta             = $vstaInfo.VstaEntries
     DotNet4          = $dotNetInfo
 }
@@ -298,13 +298,13 @@ Remove-Item ".csv" -ErrorAction SilentlyContinue
 # Default prefix in current directory if none supplied
 if (-not $OutputPrefix -or $OutputPrefix.Trim().Length -eq 0) {
     $ts = Get-Date -Format 'yyyyMMdd_HHmmss'
-    $baseName = "SsisEnv_$($hostInfo.MachineName)_$ts"
+    $baseName = "SSISEnv_$($hostInfo.MachineName)_$ts"
     $OutputPrefix = Join-Path (Get-Location) $baseName
 }
 
 $txtPath  = "${OutputPrefix}.txt"
 $jsonPath = "${OutputPrefix}.json"
-$ssisCsv  = "${OutputPrefix}_SsisInstalled.csv"
+$ssisCsv  = "${OutputPrefix}_SSISInstalled.csv"
 $vstaCsv  = "${OutputPrefix}_Vsta.csv"
 $vsCsv    = "${OutputPrefix}_VS2022.csv"
 
@@ -312,8 +312,8 @@ $vsCsv    = "${OutputPrefix}_VS2022.csv"
 $result | ConvertTo-Json -Depth 6 | Set-Content -Path $jsonPath -Encoding UTF8
 
 # 2) CSVs
-if ($result.SsisInstalled -and $result.SsisInstalled.Count -gt 0) {
-    $result.SsisInstalled | Export-Csv -Path $ssisCsv -NoTypeInformation -Encoding UTF8
+if ($result.SSISInstalled -and $result.SSISInstalled.Count -gt 0) {
+    $result.SSISInstalled | Export-Csv -Path $ssisCsv -NoTypeInformation -Encoding UTF8
 }
 if ($result.Vsta -and $result.Vsta.Count -gt 0) {
     $result.Vsta | Export-Csv -Path $vstaCsv -NoTypeInformation -Encoding UTF8
@@ -345,8 +345,8 @@ $lines += ($result.SqlServer.SqlServerVersion | Out-String).TrimEnd()
 $lines += ""
 
 $lines += "---- SSIS Installed ----"
-if ($result.SsisInstalled -and $result.SsisInstalled.Count -gt 0) {
-    $lines += ($result.SsisInstalled |
+if ($result.SSISInstalled -and $result.SSISInstalled.Count -gt 0) {
+    $lines += ($result.SSISInstalled |
                Format-Table DisplayName,DisplayVersion,Publisher -AutoSize |
                Out-String).TrimEnd()
 } else {
@@ -366,8 +366,8 @@ if ($result.VisualStudio2022.Found -and $result.VisualStudio2022.Instances.Count
 $lines += ""
 
 $lines += "---- SSIS Projects Extension (VSIX) ----"
-if ($result.SsisVsix) {
-    $lines += ($result.SsisVsix |
+if ($result.SSISVsix) {
+    $lines += ($result.SSISVsix |
                Format-Table DisplayName,DisplayVersion,Publisher -AutoSize |
                Out-String).TrimEnd()
 } else {
