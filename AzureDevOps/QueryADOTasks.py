@@ -2,9 +2,8 @@
 Azure DevOps Task Query Script
 Queries tasks for a given area and iteration, displaying:
 - Task ID
+- Parent ID and Name
 - Task Name
-- Parent ID
-- Parent Name
 - Original Estimate
 - Remaining Work
 - Completed Work
@@ -18,12 +17,59 @@ from azure.devops.v7_0.work_item_tracking.models import Wiql
 # CONFIGURATION - Update these values for your environment
 # ============================================================================
 
+# Your Azure DevOps organization URL (e.g., "https://dev.azure.com/your-org")
 ORGANIZATION_URL = "https://dev.azure.com/FlightSafety-International"
+
+# Your Personal Access Token (PAT) - Generate from Azure DevOps User Settings
 PERSONAL_ACCESS_TOKEN = "YOUR_PAT_HERE"
+
+# Project name
 PROJECT_NAME = "Enterprise Portfolio"
+
 # Filter criteria (PROJECT_NAME will be automatically prepended)
 AREA_PATH_SUFFIX = "IT Execution\\Data Int and Vis\\Simulations"
 ITERATION_PATH_SUFFIX = "2025\\25.4\\25.4.5"
+
+# Assigned To filter - Set to your name or None to see all tasks
+ASSIGNED_TO = "@Me"  # Use @Me for your tasks, or None for all tasks
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def get_iteration_dates(connection, project_name, iteration_path):
+    """Fetch the start and end dates for a given iteration"""
+    try:
+        # Get the work client
+        work_client = connection.clients.get_work_client()
+        
+        # Get all team contexts for the project
+        team_client = connection.clients.get_teams_client()
+        teams = team_client.get_teams(project_name)
+        
+        # Try to find the iteration in any team
+        for team in teams:
+            try:
+                team_context = {
+                    'project': project_name,
+                    'team': team.name
+                }
+                
+                # Get team iterations
+                iterations = work_client.get_team_iterations(team_context)
+                
+                for iteration in iterations:
+                    if iteration.path == iteration_path:
+                        start_date = iteration.attributes.start_date if iteration.attributes else None
+                        end_date = iteration.attributes.finish_date if iteration.attributes else None
+                        return start_date, end_date
+            except:
+                continue
+        
+        return None, None
+    except Exception as e:
+        print(f"Warning: Could not retrieve iteration dates: {e}")
+        return None, None
 
 # ============================================================================
 # MAIN LOGIC
@@ -40,11 +86,17 @@ def query_tasks():
     credentials = BasicAuthentication('', PERSONAL_ACCESS_TOKEN)
     connection = Connection(base_url=ORGANIZATION_URL, creds=credentials)
     
-    # Step 2: Get Work Item Tracking client
+    # Step 2: Get iteration dates
+    start_date, end_date = get_iteration_dates(connection, PROJECT_NAME, ITERATION_PATH)
+    
+    # Step 3: Get Work Item Tracking client
     wit_client = connection.clients.get_work_item_tracking_client()
     
-    # Step 3: Build WIQL query
-    # WIQL = Work Item Query Language (similar to SQL)
+    # Step 4: Build WIQL query with optional assigned-to filter
+    assigned_to_clause = ""
+    if ASSIGNED_TO:
+        assigned_to_clause = f"AND [System.AssignedTo] = '{ASSIGNED_TO}'"
+    
     wiql_query = f"""
     SELECT
         [System.Id],
@@ -52,20 +104,37 @@ def query_tasks():
         [Microsoft.VSTS.Scheduling.OriginalEstimate],
         [Microsoft.VSTS.Scheduling.RemainingWork],
         [Microsoft.VSTS.Scheduling.CompletedWork]
-    FROM WorkItems
+    FROM 
+        WorkItems
     WHERE
         [System.WorkItemType] = 'Task'
         AND [System.AreaPath] = '{AREA_PATH}'
         AND [System.IterationPath] = '{ITERATION_PATH}'
         AND [System.State] <> 'Removed'
-    ORDER BY [System.Id]
+        {assigned_to_clause}
+    ORDER BY 
+        [System.Id]
     """
     
     print("Executing query...")
     print(f"Area Path: {AREA_PATH}")
-    print(f"Iteration Path: {ITERATION_PATH}\n")
+    print(f"Iteration Path: {ITERATION_PATH}")
     
-    # Step 4: Execute the query
+    # Display iteration dates if available
+    if start_date and end_date:
+        print(f"  Start Date: {start_date.strftime('%Y-%m-%d')}")
+        print(f"  End Date:   {end_date.strftime('%Y-%m-%d')}")
+    elif start_date or end_date:
+        if start_date:
+            print(f"  Start Date: {start_date.strftime('%Y-%m-%d')}")
+        if end_date:
+            print(f"  End Date:   {end_date.strftime('%Y-%m-%d')}")
+    
+    if ASSIGNED_TO:
+        print(f"Assigned To: {ASSIGNED_TO}")
+    print()
+    
+    # Step 5: Execute the query
     wiql = Wiql(query=wiql_query)
     query_results = wit_client.query_by_wiql(wiql).work_items
     
@@ -73,32 +142,30 @@ def query_tasks():
         print("No tasks found matching the criteria.")
         return
     
-    # Step 5: Get full work item details (including relations)
+    # Step 6: Get full work item details (including relations)
     work_item_ids = [item.id for item in query_results]
     work_items = wit_client.get_work_items(
         ids=work_item_ids,
-        expand="Relations"  # This gives us the parent/child relationships
+        expand="Relations"
     )
     
-    # Step 6: Collect all parent IDs so we can fetch them in batch
+    # Step 7: Collect all parent IDs
     parent_ids = set()
     for item in work_items:
         if item.relations:
             for relation in item.relations:
-                # Parent link type is "System.LinkTypes.Hierarchy-Reverse"
                 if relation.rel == "System.LinkTypes.Hierarchy-Reverse":
-                    # Extract ID from URL (format: https://.../_apis/wit/workItems/12345)
                     parent_id = int(relation.url.split('/')[-1])
                     parent_ids.add(parent_id)
     
-    # Step 7: Fetch parent work items in batch
+    # Step 8: Fetch parent work items in batch
     parent_work_items = {}
     if parent_ids:
         parents = wit_client.get_work_items(ids=list(parent_ids))
         for parent in parents:
             parent_work_items[parent.id] = parent.fields.get('System.Title', 'N/A')
     
-    # Step 8: Display results
+    # Step 9: Display results
     print(f"Found {len(work_items)} task(s)\n")
     print("=" * 140)
     print(f"{'ID':<8} {'Parent ID':<12} {'Parent Name':<30} {'Task Name':<30} {'Original':<10} {'Remaining':<10} {'Completed':<10}")
@@ -134,7 +201,7 @@ def query_tasks():
     
     print("=" * 140)
     
-    # Step 9: Show summary statistics
+    # Step 10: Show summary statistics
     total_original = sum(item.fields.get('Microsoft.VSTS.Scheduling.OriginalEstimate') or 0 
                         for item in work_items)
     total_remaining = sum(item.fields.get('Microsoft.VSTS.Scheduling.RemainingWork') or 0 
@@ -146,7 +213,6 @@ def query_tasks():
     print(f"  Total Original Estimate: {total_original} hours")
     print(f"  Total Remaining Work:    {total_remaining} hours")
     print(f"  Total Completed Work:    {total_completed} hours")
-
 
 if __name__ == "__main__":
     try:
