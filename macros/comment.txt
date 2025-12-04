@@ -1,0 +1,12 @@
+vars:
+  # Maximum allowed time (in seconds) between when the PowerShell wrapper sets 
+  # DBT_EXECUTION_TIMESTAMP and when dbt's execution phase actually starts running models.
+  # This accounts for dbt's parse and compile phases, which can take significant time
+  # on large projects. If the timestamp is older than this threshold when models begin
+  # executing, the validation macro will abort to ensure dbt is running through the
+  # controlled wrapper pathway (not manually invoked with stale environment variables).
+  # 
+  # Keep this value as low as reasonably possible to prevent circumvention of the
+  # wrapper's security controls. Only increase if your project has consistently long
+  # parse/compile times that cause legitimate runs to fail validation.
+  wrapper_execution_timeout_seconds: 60
