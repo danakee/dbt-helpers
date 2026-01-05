@@ -1,67 +1,111 @@
-DECLARE @ROTAsOfDate date =
-CASE
-    WHEN DATEPART(HOUR, GETDATE()) BETWEEN 12 AND 23 THEN CAST(GETDATE() as date)
-    ELSE DATEADD(day, -1, CAST(GETDATE() as date))
-END;
-
-;WITH Expected AS (
+WITH [Audit] AS (
 SELECT
     r.*,
 
-    ExpectedROTElapsedDays =
-    CASE
-        WHEN r.ReservationDateEnded > @ROTAsOfDate THEN NULL
-        WHEN (r.TrainingStatusId = 7 AND r.RICDAT IS NULL) THEN NULL  -- if you store status id on fact
-        WHEN r.ReservationDateEnded IS NULL THEN NULL
-        WHEN r.HourlyFlag = 'Y' THEN NULL
-        WHEN r.IsParentReservation_ = 'N' THEN NULL
-        ELSE
-            CASE
-                WHEN r.AHCCDT IS NULL THEN NULL
+    [ExpectedROTElapsedDays] =
+        CASE
+            -- Eligibility gating: if any of these are true, ROTElapsedDays should be NULL
+            WHEN [r].[ReservationDateEnded] > [r].[ROTAsOfDate] THEN NULL
+            WHEN ([r].[TrainingStatusId] = 7 AND [r].[RICDAT] IS NULL) THEN NULL   -- only if TrainingStatusId exists on fact
+            WHEN [r].[ReservationDateEnded] IS NULL THEN NULL
+            WHEN [r].[HourlyFlag] = 'Y' THEN NULL
+            WHEN [r].[IsParentReservation_] = 'N' THEN NULL
+            ELSE
+                CASE
+                    WHEN [r].[AHCCDT] IS NULL THEN NULL
+                    -- CLOSED reservation: use source-system close date (RICDAT)
+                    WHEN [r].[RICDAT] IS NOT NULL AND [r].[AHCCDT_Date] IS NOT NULL
+                        THEN IIF([r].[RICDAT] >= [r].[AHCCDT_Date],
+                            DATEDIFF(DAY, [r].[AHCCDT_Date], [r].[RICDAT])
+                            - (DATEDIFF(WEEK, [r].[AHCCDT_Date], [r].[RICDAT])) * 2
+                            + [r].[RICDATDateOffSet], 0)
+                    -- OPEN reservation: use run-time "as-of" date (ROTAsOfDate)
+                    WHEN [r].[RICDAT] IS NULL AND [r].[AHCCDT_Date] IS NOT NULL
+                        THEN IIF([r].[ROTAsOfDate] >= [r].[AHCCDT_Date],
+                            DATEDIFF(DAY, [r].[AHCCDT_Date], [r].[ROTAsOfDate])
+                            - (DATEDIFF(WEEK, [r].[AHCCDT_Date], [r].[ROTAsOfDate])) * 2
+                            + [r].[CurrentDateOffSet] + [r].[startDateOffSet], 0)
+                    ELSE NULL
+                END
+        END,
 
-                WHEN r.RICDAT IS NOT NULL
-                    THEN IIF(r.RICDAT >= r.AHCCDT_Date,
-                        DATEDIFF(DAY, r.AHCCDT_Date, r.RICDAT)
-                        - (DATEDIFF(WEEK, r.AHCCDT_Date, r.RICDAT)) * 2
-                        + r.RICDATDateOffSet, 0)
-
-                WHEN r.RICDAT IS NULL
-                    THEN IIF(@ROTAsOfDate >= r.AHCCDT_Date,
-                        DATEDIFF(DAY, r.AHCCDT_Date, @ROTAsOfDate)
-                        - (DATEDIFF(WEEK, r.AHCCDT_Date, @ROTAsOfDate)) * 2
-                        + r.CurrentDateOffSet + r.startDateOffSet, 0)
-
-                ELSE NULL
-            END
-    END
+    [IsMismatch] =
+        CASE
+            WHEN [r].[ROTElapsedDays] IS NULL AND
+                 (CASE
+                    WHEN [r].[ReservationDateEnded] > [r].[ROTAsOfDate] THEN NULL
+                    WHEN ([r].[TrainingStatusId] = 7 AND [r].[RICDAT] IS NULL) THEN NULL
+                    WHEN [r].[ReservationDateEnded] IS NULL THEN NULL
+                    WHEN [r].[HourlyFlag] = 'Y' THEN NULL
+                    WHEN [r].[IsParentReservation_] = 'N' THEN NULL
+                    ELSE
+                        CASE
+                            WHEN [r].[AHCCDT] IS NULL THEN NULL
+                            WHEN [r].[RICDAT] IS NOT NULL AND [r].[AHCCDT_Date] IS NOT NULL
+                                THEN IIF([r].[RICDAT] >= [r].[AHCCDT_Date],
+                                    DATEDIFF(DAY, [r].[AHCCDT_Date], [r].[RICDAT])
+                                    - (DATEDIFF(WEEK, [r].[AHCCDT_Date], [r].[RICDAT])) * 2
+                                    + [r].[RICDATDateOffSet], 0)
+                            WHEN [r].[RICDAT] IS NULL AND [r].[AHCCDT_Date] IS NOT NULL
+                                THEN IIF([r].[ROTAsOfDate] >= [r].[AHCCDT_Date],
+                                    DATEDIFF(DAY, [r].[AHCCDT_Date], [r].[ROTAsOfDate])
+                                    - (DATEDIFF(WEEK, [r].[AHCCDT_Date], [r].[ROTAsOfDate])) * 2
+                                    + [r].[CurrentDateOffSet] + [r].[startDateOffSet], 0)
+                            ELSE NULL
+                        END
+                  END) IS NULL
+                THEN 0
+            WHEN [r].[ROTElapsedDays] =
+                 (CASE
+                    WHEN [r].[ReservationDateEnded] > [r].[ROTAsOfDate] THEN NULL
+                    WHEN ([r].[TrainingStatusId] = 7 AND [r].[RICDAT] IS NULL) THEN NULL
+                    WHEN [r].[ReservationDateEnded] IS NULL THEN NULL
+                    WHEN [r].[HourlyFlag] = 'Y' THEN NULL
+                    WHEN [r].[IsParentReservation_] = 'N' THEN NULL
+                    ELSE
+                        CASE
+                            WHEN [r].[AHCCDT] IS NULL THEN NULL
+                            WHEN [r].[RICDAT] IS NOT NULL AND [r].[AHCCDT_Date] IS NOT NULL
+                                THEN IIF([r].[RICDAT] >= [r].[AHCCDT_Date],
+                                    DATEDIFF(DAY, [r].[AHCCDT_Date], [r].[RICDAT])
+                                    - (DATEDIFF(WEEK, [r].[AHCCDT_Date], [r].[RICDAT])) * 2
+                                    + [r].[RICDATDateOffSet], 0)
+                            WHEN [r].[RICDAT] IS NULL AND [r].[AHCCDT_Date] IS NOT NULL
+                                THEN IIF([r].[ROTAsOfDate] >= [r].[AHCCDT_Date],
+                                    DATEDIFF(DAY, [r].[AHCCDT_Date], [r].[ROTAsOfDate])
+                                    - (DATEDIFF(WEEK, [r].[AHCCDT_Date], [r].[ROTAsOfDate])) * 2
+                                    + [r].[CurrentDateOffSet] + [r].[startDateOffSet], 0)
+                            ELSE NULL
+                        END
+                  END)
+                THEN 0
+            ELSE 1
+        END
 FROM 
-    [OperationsAnalytics].[dbo].[factReservation] AS [r]
+    [OperationsAnalytics].[dbo].[factReservation_Test] AS [r]
 )
 SELECT
-    -- key columns to identify rows
-    Expected.AHID,
-    Expected.AHCCDT,
-    Expected.AHCCDT_Date,
-    Expected.RICDAT,
-    Expected.ReservationDateEnded,
+    -- Keys / identifiers (add more if you need them)
+    [Audit].[AHID],
 
-    -- actual vs expected
-    Expected.ROTElapsedDays AS ActualROTElapsedDays,
-    Expected.ExpectedROTElapsedDays,
+    -- Critical dates / inputs
+    [Audit].[AHCCDT],
+    [Audit].[AHCCDT_Date],
+    [Audit].[RICDAT],
+    [Audit].[ReservationDateEnded],
+    [Audit].[ROTAsOfDate],
 
-    -- mismatch flag
-    CASE
-        WHEN (Expected.ROTElapsedDays IS NULL AND Expected.ExpectedROTElapsedDays IS NULL) THEN 0
-        WHEN (Expected.ROTElapsedDays = Expected.ExpectedROTElapsedDays) THEN 0
-        ELSE 1
-    END AS IsMismatch
+    -- Offsets (since they influence outcomes)
+    [Audit].[RICDATDateOffSet],
+    [Audit].[CurrentDateOffSet],
+    [Audit].[startDateOffSet],
+
+    -- Actual vs expected
+    [Audit].[ROTElapsedDays] AS ActualROTElapsedDays,
+    [Audit].[ExpectedROTElapsedDays]
 FROM 
-    Expected
-WHERE
-    CASE
-        WHEN (Expected.ROTElapsedDays IS NULL AND Expected.ExpectedROTElapsedDays IS NULL) THEN 0
-        WHEN (Expected.ROTElapsedDays = Expected.ExpectedROTElapsedDays) THEN 0
-        ELSE 1
-    END = 1
+    [Audit]
+WHERE 
+    [Audit].[IsMismatch] = 1
 ORDER BY 
-    Expected.AHID;
+    [Audit].[AHID];
