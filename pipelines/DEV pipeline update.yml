@@ -1,0 +1,97 @@
+- stage: DevEnvironmentDeployment
+  displayName: "Deploy to DEV Environment"
+  dependsOn: DevDeploymentApproval
+  jobs:
+    - deployment: DeployToDBTHost
+      displayName: "Deploy to DBT Host (DEV)"
+      environment:
+        name: "DIV-Simulation-EDW-DEV"
+        resourceName: "0002WD-BLD-01V"
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+
+              # 1) Checkout the repo at the exact commit for this pipeline run
+              - checkout: self
+                clean: true
+                fetchDepth: 0
+
+              # 2) Verify agent + verify checkout + write a verification file
+              - pwsh: |
+                  Write-Host "Hello from your environment-based agent!"
+                  Write-Host "Agent machine: $env:COMPUTERNAME"
+                  Write-Host "User: $env:USERNAME"
+                  Write-Host "Working directory (initial): $PWD"
+                  Write-Host "System drive: $env:SystemDrive"
+                  systeminfo | findstr /B /C:"OS Version"
+
+                  Write-Host ""
+                  Write-Host "Build.SourceBranch: $(Build.SourceBranch)"
+                  Write-Host "Build.SourceVersion: $(Build.SourceVersion)"
+                  Write-Host "Build.SourceVersionMessage: $(Build.SourceVersionMessage)"
+                  Write-Host "Build.SourcesDirectory: $(Build.SourcesDirectory)"
+
+                  # Confirm expected dbt folder exists in the checked-out sources
+                  $dbtRoot = Join-Path "$(Build.SourcesDirectory)" "SimulationsEDW_Cont"
+                  if (-not (Test-Path $dbtRoot)) {
+                    Write-Error "Expected path not found: $dbtRoot"
+                    Write-Host "Repo root contents:"
+                    Get-ChildItem -Path "$(Build.SourcesDirectory)" | Select-Object Name
+                    exit 1
+                  }
+
+                  Write-Host ""
+                  Write-Host "Repo root contents:"
+                  Get-ChildItem -Path "$(Build.SourcesDirectory)" | Select-Object Name
+
+                  Write-Host ""
+                  Write-Host "SimulationsEDW_Cont contents:"
+                  Get-ChildItem -Path $dbtRoot | Select-Object Name
+
+                  # Write a run verification file
+                  $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+                  $file = "C:\azagent\pipeline_verification.txt"
+                  Set-Content -Path $file -Value "Pipeline ran at $timestamp"
+                  Add-Content -Path $file -Value "Run ID: $(Build.BuildId)"
+                  Add-Content -Path $file -Value "Branch: $(Build.SourceBranch)"
+                  Add-Content -Path $file -Value "Commit: $(Build.SourceVersion)"
+                  Add-Content -Path $file -Value "Commit Message: $(Build.SourceVersionMessage)"
+                  Add-Content -Path $file -Value "Build.SourcesDirectory: $(Build.SourcesDirectory)"
+                  Add-Content -Path $file -Value "Agent Machine: $env:COMPUTERNAME"
+                  Add-Content -Path $file -Value "User: $env:USERNAME"
+
+                  Write-Host ""
+                  Write-Host "Wrote verification file: $file"
+                displayName: "Verify agent + checkout sources"
+                condition: true
+
+              # 3) Run dbt tests (DEV)
+              - pwsh: |
+                  $env:DBT_TARGET_SQLSERVER = "dev"
+                  Write-Host "Current User: $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+
+                  # Move into the dbt project directory inside the checked-out workspace
+                  $dbtProjectDir = Join-Path "$(Build.SourcesDirectory)" "SimulationsEDW_Cont\SimulationsEDW"
+                  if (-not (Test-Path $dbtProjectDir)) {
+                    Write-Error "DBT project directory not found: $dbtProjectDir"
+                    exit 1
+                  }
+
+                  Set-Location $dbtProjectDir
+
+                  # Activate venv and run dbt commands via your wrapper
+                  & ".\.venv\Scripts\Activate.ps1"
+
+                  python --version
+                  pip --version
+                  dbt --version
+
+                  .\invoke-dbt.ps1 clean
+                  .\invoke-dbt.ps1 deps
+                  .\invoke-dbt.ps1 debug
+                  .\invoke-dbt.ps1 parse
+                  .\invoke-dbt.ps1 compile --show-all-deprecations --no-partial-parse
+                  .\invoke-dbt.ps1 test
+                displayName: "Run DBT tests"
+                condition: succeeded()
