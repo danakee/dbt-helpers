@@ -1,0 +1,64 @@
+- pwsh: |
+    $env:DBT_TARGET_SQLSERVER = "dev"
+    Write-Host "Current User: $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+    Write-Host "Agent Machine: $env:COMPUTERNAME"
+    Write-Host "Working directory at start: $PWD"
+
+    # ============================================================
+    # Option B: Use VM-local persistent clone + VM-local venv
+    # ============================================================
+    $repoRoot      = "C:\source\repos\DIV.Simulations.EDW"
+    $dbtProjectDir = Join-Path $repoRoot "SimulationsEDW_Cont\SimulationsEDW"
+    $activate      = Join-Path $repoRoot "SimulationsEDW_Cont\venv\Scripts\Activate.ps1"
+
+    Write-Host "RepoRoot (VM local): $repoRoot"
+    Write-Host "DbtProjectDir:       $dbtProjectDir"
+    Write-Host "Venv Activate:       $activate"
+
+    # --- Sanity checks ---
+    if (-not (Test-Path $repoRoot)) {
+      Write-Error "Repo root not found: $repoRoot"
+      exit 1
+    }
+
+    if (-not (Test-Path $dbtProjectDir)) {
+      Write-Error "DBT project directory not found: $dbtProjectDir"
+      exit 1
+    }
+
+    if (-not (Test-Path $activate)) {
+      Write-Error "Venv activation script not found: $activate"
+      exit 1
+    }
+
+    # --- Ensure git will operate on this folder under the service account ---
+    git config --global --add safe.directory $repoRoot
+
+    # --- Update VM-local clone to latest main ---
+    Set-Location $repoRoot
+    Write-Host "Updating VM-local repo from origin/main..."
+    git fetch --all --prune
+    if ($LASTEXITCODE -ne 0) { Write-Error "git fetch failed"; exit 1 }
+
+    git reset --hard origin/main
+    if ($LASTEXITCODE -ne 0) { Write-Error "git reset failed"; exit 1 }
+
+    # --- Activate venv (VM-local) ---
+    & $activate
+
+    # --- Run dbt from the dbt project folder ---
+    Set-Location $dbtProjectDir
+    Write-Host "PWD after cd to dbt project: $PWD"
+
+    python --version
+    pip --version
+    dbt --version
+
+    .\invoke-dbt.ps1 clean
+    .\invoke-dbt.ps1 deps
+    .\invoke-dbt.ps1 debug
+    .\invoke-dbt.ps1 parse
+    .\invoke-dbt.ps1 compile --show-all-deprecations --no-partial-parse
+    .\invoke-dbt.ps1 test
+  displayName: "Run DBT tests"
+  condition: succeeded()
