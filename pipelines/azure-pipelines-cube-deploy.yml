@@ -1,0 +1,99 @@
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - 'SimulationsAnalytics/**'
+
+variables:
+  EnvCode: 'dev'
+
+  # Azure DevOps Environment + VM resource
+  AdoEnvironmentName: 'DIV-Simulation-EDW-DEV'
+  AdoHostName: 'DEV-SSAS-HOST-VM'
+
+  # VM-local persistent repo path
+  RepoRoot: 'C:\source\repos\DIV.Simulations.EDW'
+
+  # Path to your BIM file (relative to repo root)
+  BimModelPath: 'SimulationsAnalytics\SSAS\SimulationsAnalytics.bim'
+
+  # Target SSAS
+  SsasServer: 'sql.odsitar.app.dev.flightsafety.com'
+  SsasDatabase: 'SimulationsAnalytics'
+
+  # Tabular Editor CLI path on VM
+  TabularEditorPath: 'C:\Tools\TabularEditor\TabularEditor.exe'
+
+stages:
+
+- stage: DeploymentApproval
+  displayName: "DEV Deployment Approval"
+  jobs:
+    - job: Approval
+      displayName: "Awaiting DEV Approval"
+      pool: server
+      steps:
+        - task: ManualValidation@1
+          timeoutInMinutes: 2880 # 48 hours
+          displayName: "Approve DEV SSAS Deployment"
+          inputs:
+            instructions: |
+              Please approve deployment of the SSAS Tabular model to DEV.
+
+              Commit:
+              $(Build.SourceVersion)
+              $(Build.SourceVersionMessage)
+            notifyUsers: |
+              v00003557@flightsafetyapps.com
+            allowApproversToApproveTheirOwnRuns: true
+            onTimeout: "reject"
+
+- stage: EnvironmentDeployment
+  displayName: "Deploy SSAS Tabular (DEV)"
+  dependsOn: DeploymentApproval
+  jobs:
+    - deployment: DeployToDevSsas
+      displayName: "Deploy to DEV SSAS Host"
+      environment:
+        name: ${{ variables.AdoEnvironmentName }}
+        resourceName: ${{ variables.AdoHostName }}
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+              - pwsh: |
+                  Write-Host "User: $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+                  Write-Host "Machine: $env:COMPUTERNAME"
+
+                  $repoRoot = "$(RepoRoot)"
+                  $bimPath  = Join-Path $repoRoot "$(BimModelPath)"
+                  $tePath   = "$(TabularEditorPath)"
+
+                  if (-not (Test-Path $repoRoot)) { throw "Repo root not found: $repoRoot" }
+                  if (-not (Test-Path $bimPath))  { throw "BIM file not found: $bimPath" }
+                  if (-not (Test-Path $tePath))   { throw "Tabular Editor not found: $tePath" }
+
+                  git config --global --add safe.directory $repoRoot
+                  Set-Location $repoRoot
+
+                  Write-Host "Updating local repo..."
+                  git fetch --all --prune
+                  if ($LASTEXITCODE -ne 0) { throw "git fetch failed" }
+
+                  git reset --hard origin/main
+                  if ($LASTEXITCODE -ne 0) { throw "git reset failed" }
+
+                  Write-Host "Deploying BIM model..."
+                  & "$tePath" `
+                    "$bimPath" `
+                    -D `
+                    -S "$(SsasServer)" `
+                    -DB "$(SsasDatabase)" `
+                    -O
+
+                  if ($LASTEXITCODE -ne 0) { throw "Tabular deployment failed" }
+
+                  Write-Host "SSAS Tabular DEV deployment completed successfully."
+                displayName: "Deploy BIM with Tabular Editor CLI"
