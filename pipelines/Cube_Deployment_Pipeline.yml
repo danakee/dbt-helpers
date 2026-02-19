@@ -1,0 +1,137 @@
+trigger: none
+pr: none
+
+name: SSAS_Deploy_$(Date:yyyyMMdd)$(Rev:.r)
+
+parameters:
+- name: environment
+  displayName: "Target environment"
+  type: string
+  default: DEV
+  values:
+  - DEV
+  - QAT
+  - UAT
+  - PRD
+
+# -------------------------------------------------------------------
+# Variables
+# -------------------------------------------------------------------
+variables:
+  # VM-local persistent clone root (override in pipeline variables / variable group if needed)
+  RepoRoot: 'C:\source\repos\DIV.Simulations.EDW'
+
+  # Derived environment values
+  EnvName: ${{ parameters.environment }}
+  EnvLower: ${{ lower(parameters.environment) }}
+
+  # Target SSAS server (per your naming convention)
+  SsasServer: sql.odsitar.app.${{ lower(parameters.environment) }}.flightsafety.com
+
+  # Path to SSAS solution folder inside the repo root on the VM
+  SsasProjectPath: '$(RepoRoot)\SimulationsAnalytics'
+
+  # Deployment script path in the repo (VM-local clone)
+  DeployScriptPath: '$(RepoRoot)\Pipelines\SSAS\SSAS-Deploy.ps1'
+
+# -------------------------------------------------------------------
+# Stage: Deploy (approval gated via ADO Environment)
+# -------------------------------------------------------------------
+stages:
+- stage: Deploy
+  displayName: "Deploy SSAS Tabular to ${{ parameters.environment }}"
+  jobs:
+  - deployment: DeploySSAS
+    displayName: "Deploy SSAS (folder-only update + deploy)"
+    environment: ${{ parameters.environment }}  # <-- ADO Environment approvals/checks happen here
+    pool:
+      name: 'ADO-SelfHosted-DEV'   # <-- CHANGE THIS to your self-hosted agent pool name
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: none  # We intentionally DO NOT use agent workspace checkout
+
+          - pwsh: |
+              Write-Host "========================================"
+              Write-Host "SSAS Deployment Pipeline"
+              Write-Host "Target Environment : $(EnvName)"
+              Write-Host "Target Server      : $(SsasServer)"
+              Write-Host "RepoRoot           : $(RepoRoot)"
+              Write-Host "SSAS Project Path  : $(SsasProjectPath)"
+              Write-Host "Deploy Script Path : $(DeployScriptPath)"
+              Write-Host "Agent User         : $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+              Write-Host "Agent Machine      : $env:COMPUTERNAME"
+              Write-Host "Working Dir Start  : $PWD"
+              Write-Host "========================================"
+
+              # --- Sanity checks ---
+              if (-not (Test-Path -LiteralPath "$(RepoRoot)")) {
+                throw "RepoRoot not found: $(RepoRoot)"
+              }
+
+              # Make sure RepoRoot is a git repo
+              if (-not (Test-Path -LiteralPath (Join-Path "$(RepoRoot)" ".git"))) {
+                throw "RepoRoot is not a git repository (no .git folder found): $(RepoRoot)"
+              }
+
+              # Optional: ensure git treats this folder as safe for the service account
+              git config --global --add safe.directory "$(RepoRoot)" | Out-Null
+
+              # --- Prevent concurrent git operations in the same repo (basic file lock) ---
+              $lockPath = Join-Path "$(RepoRoot)" ".pipeline_git.lock"
+              $lock = $null
+
+              try {
+                $lock = [System.IO.File]::Open($lockPath, 'OpenOrCreate', 'ReadWrite', 'None')
+
+                Set-Location "$(RepoRoot)"
+                Write-Host "PWD after cd to RepoRoot: $PWD"
+
+                # --- Update only the SSAS folder from origin/main ---
+                Write-Host "Fetching origin/main..."
+                git fetch origin main --prune
+                if ($LASTEXITCODE -ne 0) { throw "git fetch failed" }
+
+                Write-Host "Updating folder: SimulationsAnalytics from origin/main..."
+                git checkout origin/main -- SimulationsAnalytics
+                if ($LASTEXITCODE -ne 0) { throw "git checkout folder failed" }
+
+                Write-Host "Cleaning untracked files inside SimulationsAnalytics..."
+                git clean -fd -- SimulationsAnalytics
+                if ($LASTEXITCODE -ne 0) { throw "git clean failed" }
+
+              }
+              finally {
+                if ($lock) { $lock.Close() }
+              }
+
+              # --- Verify SSAS project folder exists now ---
+              if (-not (Test-Path -LiteralPath "$(SsasProjectPath)")) {
+                throw "SSAS project folder not found after update: $(SsasProjectPath)"
+              }
+
+              # --- Verify deploy script exists ---
+              if (-not (Test-Path -LiteralPath "$(DeployScriptPath)")) {
+                throw "Deploy script not found: $(DeployScriptPath)"
+              }
+
+              Write-Host "Folder update complete. Ready to deploy."
+            displayName: "Update SimulationsAnalytics only (VM-local clone)"
+
+          - pwsh: |
+              # Call the deployment script (to be created later)
+              # Keep it simple: pass environment + server + project path
+              & "$(DeployScriptPath)" `
+                -Environment "$(EnvName)" `
+                -Server "$(SsasServer)" `
+                -ProjectPath "$(SsasProjectPath)"
+
+              if ($LASTEXITCODE -ne 0) {
+                throw "SSAS-Deploy.ps1 returned a non-zero exit code: $LASTEXITCODE"
+              }
+            displayName: "Deploy SSAS (SSAS-Deploy.ps1)"
+
+          - pwsh: |
+              Write-Host "SSAS deployment stage completed."
+            displayName: "Done"
