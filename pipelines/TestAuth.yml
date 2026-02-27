@@ -1,0 +1,228 @@
+trigger: none
+pr: none
+
+variables:
+  AdoEnvironmentName: 'DIV-Simulation-EDW-QAT'
+  AdoHostName: '0002WQ-BLD-01V'
+  RepoRoot: 'C:\source\repos\DIV.Simulations.EDW'
+
+stages:
+  - stage: Diagnostics
+    displayName: "Git Connectivity Diagnostics"
+    jobs:
+      - deployment: TestGit
+        displayName: "Test Git on QAT Host"
+        environment:
+          name: ${{ variables.AdoEnvironmentName }}
+          resourceName: ${{ variables.AdoHostName }}
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: none
+
+                - task: PowerShell@2
+                  displayName: "Git Diagnostics"
+                  env:
+                    SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+                    DEVOPS_PAT: $(DevOpsPAT)
+                  inputs:
+                    pwsh: true
+                    targetType: inline
+                    script: |
+                      $ErrorActionPreference = 'Stop'
+
+                      $org        = "FlightSafety-International"
+                      $project    = "Enterprise Portfolio"
+                      $repo       = "DIV.Simulations.EDW"
+                      $remoteUrl  = "https://dev.azure.com/$org/$($project -replace ' ', '%20')/_git/$repo"
+                      $repoRoot   = "$(RepoRoot)"
+
+                      Write-Host "=========================================="
+                      Write-Host "  ENVIRONMENT INFO"
+                      Write-Host "=========================================="
+                      Write-Host "Current User:  $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+                      Write-Host "Machine:       $env:COMPUTERNAME"
+                      Write-Host "Git version:   $(git --version)"
+                      Write-Host "Remote URL:    $remoteUrl"
+                      Write-Host "Repo Root:     $repoRoot"
+                      Write-Host ""
+
+                      # ---------------------------------------------------------
+                      # Test 1: Check for stale global gitconfig entries
+                      # ---------------------------------------------------------
+                      Write-Host "=========================================="
+                      Write-Host "  TEST 1: Global gitconfig contents"
+                      Write-Host "=========================================="
+                      $userProfile = [System.Environment]::GetFolderPath('UserProfile')
+                      $gitconfigPath = Join-Path $userProfile ".gitconfig"
+                      Write-Host "Gitconfig path: $gitconfigPath"
+                      if (Test-Path $gitconfigPath) {
+                          # Show config but mask any auth tokens
+                          $content = Get-Content $gitconfigPath -Raw
+                          $masked = $content -replace '(Authorization: (Basic|Bearer) )\S+', '$1***MASKED***'
+                          Write-Host $masked
+                      } else {
+                          Write-Host "No .gitconfig found at $gitconfigPath"
+                      }
+                      Write-Host ""
+
+                      Write-Host "All http.* git config entries:"
+                      git config --global --list 2>&1 | Select-String "http\.|credential|extraheader" | ForEach-Object {
+                          $line = $_.ToString()
+                          $line = $line -replace '(Authorization: (Basic|Bearer) )\S+', '$1***MASKED***'
+                          Write-Host "  $line"
+                      }
+                      Write-Host ""
+
+                      # ---------------------------------------------------------
+                      # Test 2: REST API call (bypasses git entirely)
+                      # ---------------------------------------------------------
+                      Write-Host "=========================================="
+                      Write-Host "  TEST 2: REST API with Bearer token"
+                      Write-Host "=========================================="
+                      $token = $env:SYSTEM_ACCESSTOKEN
+                      try {
+                          $response = Invoke-RestMethod -Uri "https://dev.azure.com/$org/_apis/projects?api-version=7.0" `
+                              -Headers @{Authorization = "Bearer $token"} `
+                              -ErrorAction Stop
+                          Write-Host "SUCCESS - Found $($response.count) projects"
+                      } catch {
+                          Write-Host "FAILED - $($_.Exception.Message)"
+                      }
+                      Write-Host ""
+
+                      Write-Host "=========================================="
+                      Write-Host "  TEST 3: REST API with PAT (Basic)"
+                      Write-Host "=========================================="
+                      $pat = $env:DEVOPS_PAT
+                      if (-not [string]::IsNullOrWhiteSpace($pat)) {
+                          $base64 = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":$pat"))
+                          try {
+                              $response = Invoke-RestMethod -Uri "https://dev.azure.com/$org/_apis/projects?api-version=7.0" `
+                                  -Headers @{Authorization = "Basic $base64"} `
+                                  -ErrorAction Stop
+                              Write-Host "SUCCESS - Found $($response.count) projects"
+                          } catch {
+                              Write-Host "FAILED - $($_.Exception.Message)"
+                          }
+                      } else {
+                          Write-Host "SKIPPED - No PAT available"
+                      }
+                      Write-Host ""
+
+                      # ---------------------------------------------------------
+                      # Test 4: Git ls-remote with Bearer (inline -c flag)
+                      # ---------------------------------------------------------
+                      Write-Host "=========================================="
+                      Write-Host "  TEST 4: git ls-remote with Bearer (-c flag)"
+                      Write-Host "=========================================="
+                      # Clear any global extraheader first
+                      git config --global --unset-all http.https://dev.azure.com/FlightSafety-International/.extraheader 2>$null
+                      git config --global --unset credential.helper 2>$null
+
+                      $result = git -c http.extraheader="Authorization: Bearer $token" ls-remote --heads $remoteUrl 2>&1
+                      Write-Host "Exit code: $LASTEXITCODE"
+                      if ($LASTEXITCODE -eq 0) {
+                          Write-Host "SUCCESS"
+                          $result | Select-Object -First 3 | ForEach-Object { Write-Host "  $_" }
+                      } else {
+                          Write-Host "FAILED"
+                          $result | ForEach-Object { Write-Host "  $_" }
+                      }
+                      Write-Host ""
+
+                      # ---------------------------------------------------------
+                      # Test 5: Git ls-remote with PAT Basic (inline -c flag)
+                      # ---------------------------------------------------------
+                      Write-Host "=========================================="
+                      Write-Host "  TEST 5: git ls-remote with PAT Basic (-c flag)"
+                      Write-Host "=========================================="
+                      if (-not [string]::IsNullOrWhiteSpace($pat)) {
+                          $base64 = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":$pat"))
+                          $result = git -c http.extraheader="Authorization: Basic $base64" ls-remote --heads $remoteUrl 2>&1
+                          Write-Host "Exit code: $LASTEXITCODE"
+                          if ($LASTEXITCODE -eq 0) {
+                              Write-Host "SUCCESS"
+                              $result | Select-Object -First 3 | ForEach-Object { Write-Host "  $_" }
+                          } else {
+                              Write-Host "FAILED"
+                              $result | ForEach-Object { Write-Host "  $_" }
+                          }
+                      } else {
+                          Write-Host "SKIPPED - No PAT available"
+                      }
+                      Write-Host ""
+
+                      # ---------------------------------------------------------
+                      # Test 6: Git ls-remote with global config (how your pipeline does it)
+                      # ---------------------------------------------------------
+                      Write-Host "=========================================="
+                      Write-Host "  TEST 6: git ls-remote with global config extraheader"
+                      Write-Host "=========================================="
+                      git config --global http.https://dev.azure.com/FlightSafety-International/.extraheader "Authorization: Bearer $token"
+                      
+                      Set-Location $repoRoot
+                      git remote set-url origin $remoteUrl
+                      
+                      $result = git ls-remote --heads origin 2>&1
+                      Write-Host "Exit code: $LASTEXITCODE"
+                      if ($LASTEXITCODE -eq 0) {
+                          Write-Host "SUCCESS"
+                          $result | Select-Object -First 3 | ForEach-Object { Write-Host "  $_" }
+                      } else {
+                          Write-Host "FAILED"
+                          $result | ForEach-Object { Write-Host "  $_" }
+                      }
+                      Write-Host ""
+
+                      # ---------------------------------------------------------
+                      # Test 7: TLS / Network diagnostics
+                      # ---------------------------------------------------------
+                      Write-Host "=========================================="
+                      Write-Host "  TEST 7: TLS and Network"
+                      Write-Host "=========================================="
+                      Write-Host "TLS versions enabled:"
+                      [Net.ServicePointManager]::SecurityProtocol
+                      Write-Host ""
+                      
+                      Write-Host "Testing HTTPS connectivity to dev.azure.com..."
+                      try {
+                          $tcp = New-Object System.Net.Sockets.TcpClient
+                          $tcp.Connect("dev.azure.com", 443)
+                          Write-Host "SUCCESS - TCP connection to dev.azure.com:443"
+                          $tcp.Close()
+                      } catch {
+                          Write-Host "FAILED - $($_.Exception.Message)"
+                      }
+                      Write-Host ""
+
+                      Write-Host "Proxy settings:"
+                      $proxy = [System.Net.WebRequest]::GetSystemWebProxy()
+                      $testUri = [Uri]"https://dev.azure.com"
+                      $proxyUri = $proxy.GetProxy($testUri)
+                      if ($proxyUri -eq $testUri) {
+                          Write-Host "  No proxy configured for dev.azure.com"
+                      } else {
+                          Write-Host "  Proxy: $proxyUri"
+                      }
+                      Write-Host ""
+
+                      Write-Host "GIT_CURL_VERBOSE test (last 20 lines):"
+                      $env:GIT_CURL_VERBOSE = "1"
+                      $verboseResult = git ls-remote --heads origin 2>&1
+                      $env:GIT_CURL_VERBOSE = $null
+                      $verboseResult | Select-Object -Last 20 | ForEach-Object {
+                          $line = $_.ToString() -replace '(Authorization: (Basic|Bearer) )\S+', '$1***MASKED***'
+                          Write-Host "  $line"
+                      }
+                      Write-Host ""
+
+                      # ---------------------------------------------------------
+                      # Cleanup
+                      # ---------------------------------------------------------
+                      Write-Host "=========================================="
+                      Write-Host "  CLEANUP"
+                      Write-Host "=========================================="
+                      git config --global --unset-all http.https://dev.azure.com/FlightSafety-International/.extraheader 2>$null
+                      Write-Host "Cleared global extraheader. Done."
