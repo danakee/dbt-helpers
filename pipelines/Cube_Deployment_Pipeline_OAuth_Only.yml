@@ -1,0 +1,188 @@
+trigger: none
+pr: none
+
+name: SSAS_Tabular_Cube_Deploy_$(Date:yyyyMMdd)$(Rev:.r)
+
+parameters:
+- name: environment
+  displayName: "Target SSAS environment"
+  type: string
+  default: DEV
+  values:
+  - DEV
+  - QAT
+  - UAT
+  - PRD
+
+# Let the caller provide the target SSAS database name
+- name: databaseName
+  displayName: "SSAS Database Name"
+  type: string
+  default: SimulationsAnalytics  # <-- change default if needed
+
+# -------------------------------------------------------------------------
+# Variables
+# -------------------------------------------------------------------------
+variables:
+  # VM-local persistent clone root (override in pipeline variables / variable group if needed)
+  RepoRoot: 'C:\source\repos\DIV.Simulations.EDW'
+
+  # Derived environment values
+  EnvName: ${{ parameters.environment }}
+  EnvLower: ${{ lower(parameters.environment) }}
+
+  # Target SSAS server (per your naming convention)
+  SsasServer: sql.odsitar.app.${{ lower(parameters.environment) }}.flightsafety.com
+
+  # Path to SSAS solution folder inside the repo root on the VM
+  SsasProjectPath: '$(RepoRoot)\SimulationsAnalytics'
+
+  # Deployment script path in the repo (VM-local clone)
+  DeployScriptPath: '$(RepoRoot)\Pipelines\cube\SSAS-Deploy.ps1'
+
+  # Cube Roll configuration script path (assumed next to deploy script)
+  CubeRollScriptPath: '$(RepoRoot)\Pipelines\cube\Apply-CubeRollConfiguration.ps1'
+
+  # Expose database name to steps
+  SsasDatabaseName: ${{ parameters.databaseName }}
+
+stages:
+# -------------------------------------------------------------------------
+# Deploy Stage (Agent via ADO environment)
+# -------------------------------------------------------------------------
+- stage: EnvironmentDeployment
+  displayName: "Deploy SSAS Tabular Cube to ${{ parameters.environment }}"
+  jobs:
+  - deployment: DeploySSAS
+    displayName: "Deploy SSAS (folder-only update + deploy)"
+    environment:
+      name: DIV-Simulation-EDW-${{ parameters.environment }}
+      resourceType: VirtualMachine
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: none  # We intentionally DO NOT use agent workspace checkout
+
+          # ---------------------------------------------------------------
+          # Update SimulationsAnalytics folder only (VM-local clone)
+          # OAuth-only (System.AccessToken)
+          # ---------------------------------------------------------------
+          - pwsh: |
+              $ErrorActionPreference = 'Stop'
+
+              Write-Host "=============================================================="
+              Write-Host "SSAS Deployment Pipeline"
+              Write-Host "Target Environment : $(EnvName)"
+              Write-Host "Target Server      : $(SsasServer)"
+              Write-Host "RepoRoot           : $(RepoRoot)"
+              Write-Host "SSAS Project Path  : $(SsasProjectPath)"
+              Write-Host "Deploy Script Path : $(DeployScriptPath)"
+              Write-Host "Agent User         : $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+              Write-Host "Agent Machine      : $env:COMPUTERNAME"
+              Write-Host "Working Dir Start  : $PWD"
+              Write-Host "=============================================================="
+
+              # --- Sanity checks ---
+              if (-not (Test-Path -LiteralPath "$(RepoRoot)")) {
+                throw "RepoRoot not found: $(RepoRoot)"
+              }
+
+              if (-not (Test-Path -LiteralPath (Join-Path "$(RepoRoot)" ".git"))) {
+                throw "RepoRoot is not a git repository (no .git folder found): $(RepoRoot)"
+              }
+
+              # Ensure git treats this folder as safe for the service account
+              git config --global --add safe.directory "$(RepoRoot)" | Out-Null
+
+              # --- Acquire ADO OAuth token for git (non-interactive) ---
+              $token = $env:SYSTEM_ACCESSTOKEN
+              if ([string]::IsNullOrWhiteSpace($token)) {
+                throw "SYSTEM_ACCESSTOKEN is not available. Ensure the step includes env: SYSTEM_ACCESSTOKEN=$(System.AccessToken) and that OAuth token access is enabled."
+              }
+              $authHeader = "AUTHORIZATION: Bearer $token"
+
+              # --- Prevent concurrent git operations in the same repo (basic file lock) ---
+              $lockPath = Join-Path "$(RepoRoot)" ".pipeline_git.lock"
+              $lock = $null
+
+              try {
+                $lock = [System.IO.File]::Open($lockPath, 'OpenOrCreate', 'ReadWrite', 'None')
+
+                Set-Location "$(RepoRoot)"
+                Write-Host "PWD after cd to RepoRoot: $PWD"
+
+                # --- Update only the SSAS folder from origin/main ---
+                Write-Host "Fetching origin/main..."
+                git -c http.extraheader="$authHeader" fetch origin main --prune
+                if ($LASTEXITCODE -ne 0) { throw "git fetch failed" }
+
+                Write-Host "Updating folder: SimulationsAnalytics from origin/main..."
+                git -c http.extraheader="$authHeader" checkout origin/main -- SimulationsAnalytics
+                if ($LASTEXITCODE -ne 0) { throw "git checkout folder failed" }
+
+                Write-Host "Cleaning untracked files inside SimulationsAnalytics..."
+                git clean -fd -- SimulationsAnalytics
+                if ($LASTEXITCODE -ne 0) { throw "git clean failed" }
+              }
+              finally {
+                if ($lock) { $lock.Close() }
+              }
+
+              # --- Verify SSAS project folder exists now ---
+              if (-not (Test-Path -LiteralPath "$(SsasProjectPath)")) {
+                throw "SSAS project folder not found after update: $(SsasProjectPath)"
+              }
+
+              # --- Verify deploy script exists ---
+              if (-not (Test-Path -LiteralPath "$(DeployScriptPath)")) {
+                throw "Deploy script not found: $(DeployScriptPath)"
+              }
+
+              Write-Host "Folder update complete. Ready to deploy."
+            displayName: "Update SimulationsAnalytics only (VM-local clone)"
+            env:
+              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+
+          # ---------------------------------------------------------------
+          # Deploy SSAS
+          # ---------------------------------------------------------------
+          - pwsh: |
+              & "$(DeployScriptPath)" `
+                -Environment "$(EnvName)" `
+                -Server "$(SsasServer)" `
+                -ProjectPath "$(SsasProjectPath)"
+
+              if ($LASTEXITCODE -ne 0) {
+                throw "SSAS-Deploy.ps1 returned a non-zero exit code: $LASTEXITCODE"
+              }
+            displayName: "Deploy SSAS (SSAS-Deploy.ps1)"
+
+          # ---------------------------------------------------------------
+          # Run Cube Roll configuration after a successful deploy
+          # ---------------------------------------------------------------
+          - pwsh: |
+              Write-Host "=============================================================="
+              Write-Host "Running Apply-CubeRollConfiguration.ps1"
+              Write-Host "Environment : $(EnvName)"
+              Write-Host "Database    : $(SsasDatabaseName)"
+              Write-Host "Script Path : $(CubeRollScriptPath)"
+              Write-Host "=============================================================="
+
+              if (-not (Test-Path -LiteralPath "$(CubeRollScriptPath)")) {
+                throw "Cube roll configuration script not found: $(CubeRollScriptPath)"
+              }
+
+              & "$(CubeRollScriptPath)" `
+                -SSASEnv "$(EnvName)" `
+                -DatabaseName "$(SsasDatabaseName)"
+
+              if ($LASTEXITCODE -ne 0) {
+                throw "Apply-CubeRollConfiguration.ps1 returned a non-zero exit code: $LASTEXITCODE"
+              }
+            displayName: "Configure Cube Roll (post-deploy)"
+            condition: succeeded()
+
+          - pwsh: |
+              Write-Host "SSAS deployment stage completed."
+            displayName: "Done"
