@@ -4,7 +4,8 @@
 
 .DESCRIPTION
   - Loads Model.bim from repo
-  - Patches data source connection string(s)
+  - Patches data source connection string(s) — supports both legacy (connectionString)
+    and structured (connectionDetails.address) datasource types
   - Wraps as TMSL createOrReplace targeting -SSASDatabase
   - If database exists: fails unless -Overwrite is supplied
   - Deploys via Invoke-ASCmd
@@ -24,7 +25,7 @@
   # Fully parameterized, deploy + full process:
   .\SSAS-Deploy.ps1 -Environment DEV -SSASServer "myssas01" -SSASDatabase "SimAnalytics" `
     -ProjectPath "D:\repo\SimulationsAnalytics" -ModelBimRelativePath "Model.bim" `
-    -DataSourceName "SimulationsAnalytics" -SQLServer "myssas01" -SQLDatabase "SimulationsAnalytics" `
+    -DataSourceName "SQL/SimulationsAnalytics" -SQLServer "myssas01" -SQLDatabase "SimulationsAnalytics" `
     -Overwrite -Process -ProcessType full
 
 .EXAMPLE
@@ -361,24 +362,91 @@ function Update-ModelDataSources {
   }
 
   foreach ($ds in $targets) {
-    if (-not $ds.connectionString) {
-      throw "Datasource '$($ds.name)' does not have a connectionString property."
+    # -------------------------------------------------------
+    # Determine datasource type and patch accordingly
+    # -------------------------------------------------------
+    $dsType = $null
+
+    if ($ds.PSObject.Properties['connectionString'] -and $ds.connectionString) {
+      $dsType = "legacy"
+    }
+    elseif ($ds.PSObject.Properties['connectionDetails'] -and $ds.connectionDetails) {
+      $dsType = "structured"
+    }
+    else {
+      # Check for credential property as a hint it's structured but missing connectionDetails
+      $propsAvailable = ($ds.PSObject.Properties | ForEach-Object { $_.Name }) -join ", "
+      throw "Datasource '$($ds.name)' has neither 'connectionString' nor 'connectionDetails'. Cannot determine type. Available properties: [$propsAvailable]"
     }
 
-    $old = $ds.connectionString
+    Write-Host "Datasource '$($ds.name)' detected as: $dsType"
 
-    if ($ConnectionStringOverride) {
-      $ds.connectionString = $ConnectionStringOverride
-    } else {
-      if (-not $SQLServer -and -not $SQLDatabase) {
-        throw "To patch connection strings, provide either -ConnectionStringOverride OR (-SQLServer and/or -SQLDatabase)."
+    # ------- LEGACY datasource (flat connectionString) -------
+    if ($dsType -eq "legacy") {
+      $old = $ds.connectionString
+
+      if ($ConnectionStringOverride) {
+        $ds.connectionString = $ConnectionStringOverride
+      } else {
+        if (-not $SQLServer -and -not $SQLDatabase) {
+          throw "To patch connection strings, provide either -ConnectionStringOverride OR (-SQLServer and/or -SQLDatabase)."
+        }
+        $ds.connectionString = Update-ConnectionStringParts -ConnectionString $old -NewServer $SQLServer -NewDatabase $SQLDatabase
       }
-      $ds.connectionString = Update-ConnectionStringParts -ConnectionString $old -NewServer $SQLServer -NewDatabase $SQLDatabase
+
+      Write-Host "  Patched connectionString:"
+      Write-Host "    OLD: $old"
+      Write-Host "    NEW: $($ds.connectionString)"
     }
 
-    Write-Host "Patched datasource '$($ds.name)'."
-    Write-Host "  OLD: $old"
-    Write-Host "  NEW: $($ds.connectionString)"
+    # ------- STRUCTURED datasource (connectionDetails.address) -------
+    if ($dsType -eq "structured") {
+      if ($ConnectionStringOverride) {
+        Write-Warning "  -ConnectionStringOverride is not applicable to structured datasources. Ignoring override for '$($ds.name)'."
+        Write-Warning "  Use -SQLServer / -SQLDatabase to patch structured datasources."
+      }
+
+      $address = $null
+      if ($ds.connectionDetails.PSObject.Properties['address']) {
+        $address = $ds.connectionDetails.address
+      }
+
+      if (-not $address) {
+        throw "Structured datasource '$($ds.name)' has connectionDetails but no address object."
+      }
+
+      # Patch server
+      if ($SQLServer -and $address.PSObject.Properties['server']) {
+        $oldServer = $address.server
+        $address.server = $SQLServer
+        Write-Host "  Patched address.server:"
+        Write-Host "    OLD: $oldServer"
+        Write-Host "    NEW: $($address.server)"
+      }
+      elseif ($SQLServer) {
+        # server property doesn't exist yet — add it
+        $address | Add-Member -NotePropertyName 'server' -NotePropertyValue $SQLServer -Force
+        Write-Host "  Added address.server: $SQLServer"
+      }
+
+      # Patch database
+      if ($SQLDatabase -and $address.PSObject.Properties['database']) {
+        $oldDatabase = $address.database
+        $address.database = $SQLDatabase
+        Write-Host "  Patched address.database:"
+        Write-Host "    OLD: $oldDatabase"
+        Write-Host "    NEW: $($address.database)"
+      }
+      elseif ($SQLDatabase) {
+        # database property doesn't exist yet — add it
+        $address | Add-Member -NotePropertyName 'database' -NotePropertyValue $SQLDatabase -Force
+        Write-Host "  Added address.database: $SQLDatabase"
+      }
+
+      if (-not $SQLServer -and -not $SQLDatabase) {
+        Write-Warning "  No -SQLServer or -SQLDatabase provided. Structured datasource '$($ds.name)' left unchanged."
+      }
+    }
   }
 
   return $DatabaseObject
