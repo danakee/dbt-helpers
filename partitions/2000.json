@@ -1,0 +1,36 @@
+{
+  "name": "FactTimesheet_2000",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    Query = Value.NativeQuery(",
+      "        Source,",
+      "        \"SELECT * FROM dbo.FactTimesheet WHERE DateSKey >= 20000101 AND DateSKey < 20010101\",",
+      "        null,",
+      "        [EnableFolding = true]",
+      "    )",
+      "in",
+      "    Query"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    Query = Value.NativeQuery(",
+        "        Source,",
+        "        \"SELECT * FROM dbo.FactTimesheet WHERE DateSKey >= 20000101 AND DateSKey < 20010101\",",
+        "        null,",
+        "        [EnableFolding = true]",
+        "    )",
+        "in",
+        "    Query</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+}
