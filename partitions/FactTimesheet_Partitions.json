@@ -1,0 +1,942 @@
+// ============================================================
+// FactTimesheet Partitions: 2001 - 2029
+// ============================================================
+// INSTRUCTIONS:
+//   1. In the .bim, locate the FactTimesheet_2000 partition block
+//   2. After the closing } of that block (before the next partition
+//      or the closing ] of the partitions array), paste ALL blocks below
+//   3. Also rename "FactTimesheet_20000" → "FactTimesheet_2000" 
+//      in the existing block (typo fix)
+//   4. The default "Partition" block should remain until after
+//      all partitions are deployed and processed, then delete it
+// ============================================================
+
+,
+{
+  "name": "FactTimesheet_2001",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20010101",
+      "        and [DateSKey] < 20020101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20010101",
+        "        and [DateSKey] < 20020101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2002",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20020101",
+      "        and [DateSKey] < 20030101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20020101",
+        "        and [DateSKey] < 20030101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2003",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20030101",
+      "        and [DateSKey] < 20040101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20030101",
+        "        and [DateSKey] < 20040101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2004",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20040101",
+      "        and [DateSKey] < 20050101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20040101",
+        "        and [DateSKey] < 20050101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2005",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20050101",
+      "        and [DateSKey] < 20060101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20050101",
+        "        and [DateSKey] < 20060101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2006",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20060101",
+      "        and [DateSKey] < 20070101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20060101",
+        "        and [DateSKey] < 20070101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2007",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20070101",
+      "        and [DateSKey] < 20080101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20070101",
+        "        and [DateSKey] < 20080101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2008",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20080101",
+      "        and [DateSKey] < 20090101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20080101",
+        "        and [DateSKey] < 20090101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2009",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20090101",
+      "        and [DateSKey] < 20100101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20090101",
+        "        and [DateSKey] < 20100101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2010",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20100101",
+      "        and [DateSKey] < 20110101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20100101",
+        "        and [DateSKey] < 20110101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2011",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20110101",
+      "        and [DateSKey] < 20120101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20110101",
+        "        and [DateSKey] < 20120101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2012",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20120101",
+      "        and [DateSKey] < 20130101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20120101",
+        "        and [DateSKey] < 20130101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2013",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20130101",
+      "        and [DateSKey] < 20140101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20130101",
+        "        and [DateSKey] < 20140101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2014",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20140101",
+      "        and [DateSKey] < 20150101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20140101",
+        "        and [DateSKey] < 20150101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2015",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20150101",
+      "        and [DateSKey] < 20160101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20150101",
+        "        and [DateSKey] < 20160101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2016",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20160101",
+      "        and [DateSKey] < 20170101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20160101",
+        "        and [DateSKey] < 20170101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2017",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20170101",
+      "        and [DateSKey] < 20180101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20170101",
+        "        and [DateSKey] < 20180101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2018",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20180101",
+      "        and [DateSKey] < 20190101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20180101",
+        "        and [DateSKey] < 20190101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2019",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20190101",
+      "        and [DateSKey] < 20200101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20190101",
+        "        and [DateSKey] < 20200101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2020",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20200101",
+      "        and [DateSKey] < 20210101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20200101",
+        "        and [DateSKey] < 20210101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2021",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20210101",
+      "        and [DateSKey] < 20220101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20210101",
+        "        and [DateSKey] < 20220101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2022",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20220101",
+      "        and [DateSKey] < 20230101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20220101",
+        "        and [DateSKey] < 20230101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2023",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20230101",
+      "        and [DateSKey] < 20240101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20230101",
+        "        and [DateSKey] < 20240101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2024",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20240101",
+      "        and [DateSKey] < 20250101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20240101",
+        "        and [DateSKey] < 20250101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2025",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20250101",
+      "        and [DateSKey] < 20260101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20250101",
+        "        and [DateSKey] < 20260101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2026",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20260101",
+      "        and [DateSKey] < 20270101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20260101",
+        "        and [DateSKey] < 20270101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2027",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20270101",
+      "        and [DateSKey] < 20280101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20270101",
+        "        and [DateSKey] < 20280101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2028",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20280101",
+      "        and [DateSKey] < 20290101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20280101",
+        "        and [DateSKey] < 20290101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+},
+{
+  "name": "FactTimesheet_2029",
+  "mode": "import",
+  "source": {
+    "type": "m",
+    "expression": [
+      "let",
+      "    Source = #\"SQL/SimulationsAnalytics\",",
+      "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+      "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+      "        [DateSKey] >= 20290101",
+      "        and [DateSKey] < 20300101)",
+      "in",
+      "    FilteredRows"
+    ]
+  },
+  "annotations": [
+    {
+      "name": "QueryEditorSerialization",
+      "value": [
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Gemini xmlns=\"QueryEditorSerialization\"><AnnotationContent><![CDATA[<RSQueryCommandText>let",
+        "    Source = #\"SQL/SimulationsAnalytics\",",
+        "    dbo_FactTimesheet = Source{[Schema=\"dbo\",Item=\"FactTimesheet\"]}[Data],",
+        "    FilteredRows = Table.SelectRows(dbo_FactTimesheet, each",
+        "        [DateSKey] >= 20290101",
+        "        and [DateSKey] < 20300101)",
+        "in",
+        "    dbo_FactTimesheet</RSQueryCommandText><RSQueryCommandType>Text</RSQueryCommandType><RSQueryDesignState></RSQueryDesignState>]]></AnnotationContent></Gemini>"
+      ]
+    }
+  ]
+}
