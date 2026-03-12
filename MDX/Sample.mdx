@@ -1,0 +1,76 @@
+-- 1. Current Cycle Budget vs EAC — Hours & Amount
+SELECT
+    {
+        [Measures].[CC Budget Hours],
+        [Measures].[CC EAC Hours],
+        [Measures].[CC EAC vs Budget Hours],
+        [Measures].[CC EAC vs Budget Hours %],
+        [Measures].[CC Budget Amount],
+        [Measures].[CC EAC Amount],
+        [Measures].[CC EAC vs Budget Amount],
+        [Measures].[CC EAC vs Budget Amount %]
+    } ON COLUMNS,
+    NON EMPTY
+    [Budget].[Budget].[Budget].MEMBERS ON ROWS
+FROM [SimulationsAnalytics]
+
+-- 2. ITD Progress — How Far Along Are We?
+SELECT
+    {
+        [Measures].[CC Budget Hours],
+        [Measures].[CC ITD Hours],
+        [Measures].[CC ITD % Complete Hours],
+        [Measures].[CC Remaining Hours],
+        [Measures].[CC ETC Hours]
+    } ON COLUMNS,
+    NON EMPTY
+    [Budget].[Budget].[Budget].MEMBERS ON ROWS
+FROM [SimulationsAnalytics]
+
+-- 3. Current Cycle vs All-Time Budget Comparison
+SELECT
+    {
+        [Measures].[CC Budget Hours],
+        [Measures].[Budget Hours],
+        [Measures].[CC EAC Hours],
+        [Measures].[EAC Hours],
+        [Measures].[CC Remaining Hours],
+        [Measures].[Remaining Hours]
+    } ON COLUMNS,
+    NON EMPTY
+    [Budget].[Budget].[Budget].MEMBERS ON ROWS
+FROM [SimulationsAnalytics]
+
+-- 4. Timesheet Actuals vs ITD Plan (Minutes → Hours)
+WITH
+    MEMBER [Measures].[Minutes Charged to Hours] AS
+        [Measures].[Minutes Charged] / 60,
+        FORMAT_STRING = "#,##0.0"
+SELECT
+    {
+        [Measures].[Minutes Charged to Hours],
+        [Measures].[CC ITD Hours],
+        [Measures].[CC Remaining Hours]
+    } ON COLUMNS,
+    NON EMPTY
+    [Budget].[Budget].[Budget].MEMBERS ON ROWS
+FROM [SimulationsAnalytics]
+
+-- 5. EAC Variance Flag — Calculated Member
+WITH
+    MEMBER [Measures].[Over Budget Flag] AS
+        IIF(
+            [Measures].[CC EAC vs Budget Hours %] > 0.05,
+            "⚠ Over by " + FORMAT([Measures].[CC EAC vs Budget Hours %], "Percent"),
+            "✓ Within Budget"
+        )
+SELECT
+    {
+        [Measures].[CC Budget Hours],
+        [Measures].[CC EAC Hours],
+        [Measures].[CC EAC vs Budget Hours %],
+        [Measures].[Over Budget Flag]
+    } ON COLUMNS,
+    NON EMPTY
+    [Budget].[Budget].[Budget].MEMBERS ON ROWS
+FROM [SimulationsAnalytics]
