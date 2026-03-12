@@ -1,0 +1,103 @@
+// =============================================================================
+// SimulationsAnalytics DAX Queries
+// Model: SimulationsAnalytics (Tabular)
+// Description: Current Cycle analysis queries for use in SSMS MDX query window
+// =============================================================================
+// NOTES:
+//   - All queries use EVALUATE + SUMMARIZECOLUMNS (native Tabular DAX pattern)
+//   - Run in SSMS connected to Analysis Services instance
+//   - Replace 'Budget'[Budget Name] with the actual column name if different
+//     (browse Budget table in Object Explorer to confirm column names)
+//   - SUMMARIZECOLUMNS automatically filters out blank/empty rows
+// =============================================================================
+
+
+// =============================================================================
+// Query 1: Current Cycle Budget vs EAC — Hours & Amount
+// Purpose:  Top-level "are we over budget?" view across all budget lines
+// =============================================================================
+EVALUATE
+SUMMARIZECOLUMNS(
+    'Budget'[Budget],
+    "CC Budget Hours",          [CC Budget Hours],
+    "CC EAC Hours",             [CC EAC Hours],
+    "CC EAC vs Budget Hours",   [CC EAC vs Budget Hours],
+    "CC EAC vs Budget Hours %", [CC EAC vs Budget Hours %],
+    "CC Budget Amount",         [CC Budget Amount],
+    "CC EAC Amount",            [CC EAC Amount],
+    "CC EAC vs Budget Amount",  [CC EAC vs Budget Amount],
+    "CC EAC vs Budget Amount %",[CC EAC vs Budget Amount %]
+)
+ORDER BY 'Budget'[Budget]
+
+
+// =============================================================================
+// Query 2: ITD Progress — How Far Along Are We?
+// Purpose:  Shows inception-to-date burn, percent complete, and remaining work
+// =============================================================================
+EVALUATE
+SUMMARIZECOLUMNS(
+    'Budget'[Budget],
+    "CC Budget Hours",          [CC Budget Hours],
+    "CC ITD Hours",             [CC ITD Hours],
+    "CC ITD % Complete Hours",  [CC ITD % Complete Hours],
+    "CC Remaining Hours",       [CC Remaining Hours],
+    "CC ETC Hours",             [CC ETC Hours]
+)
+ORDER BY 'Budget'[Budget]
+
+
+// =============================================================================
+// Query 3: Current Cycle vs All-Time Budget Comparison
+// Purpose:  Compares CC-scoped measures against full project lifetime measures
+//           to show what portion of the full project the current cycle covers
+// =============================================================================
+EVALUATE
+SUMMARIZECOLUMNS(
+    'Budget'[Budget],
+    "CC Budget Hours",    [CC Budget Hours],
+    "Budget Hours",       [Budget Hours],
+    "CC EAC Hours",       [CC EAC Hours],
+    "EAC Hours",          [EAC Hours],
+    "CC Remaining Hours", [CC Remaining Hours],
+    "Remaining Hours",    [Remaining Hours]
+)
+ORDER BY 'Budget'[Budget]
+
+
+// =============================================================================
+// Query 4: Timesheet Actuals vs ITD Plan
+// Purpose:  Converts raw Minutes Charged to hours and compares against
+//           CC ITD plan to surface actuals vs scheduled burn
+// =============================================================================
+EVALUATE
+SUMMARIZECOLUMNS(
+    'Budget'[Budget],
+    "Minutes Charged to Hours", DIVIDE([Minutes Charged], 60),
+    "CC ITD Hours",             [CC ITD Hours],
+    "CC Remaining Hours",       [CC Remaining Hours]
+)
+ORDER BY 'Budget'[Budget]
+
+
+// =============================================================================
+// Query 5: EAC Variance Flag — Over Budget Detection
+// Purpose:  Flags any budget line exceeding 5% EAC variance threshold
+//           Adjust the 0.05 threshold to match your program tolerance
+// =============================================================================
+EVALUATE
+ADDCOLUMNS(
+    SUMMARIZECOLUMNS(
+        'Budget'[Budget],
+        "CC Budget Hours",          [CC Budget Hours],
+        "CC EAC Hours",             [CC EAC Hours],
+        "CC EAC vs Budget Hours %", [CC EAC vs Budget Hours %]
+    ),
+    "Over Budget Flag",
+        IF(
+            [CC EAC vs Budget Hours %] > 0.05,
+            "OVER by " & FORMAT([CC EAC vs Budget Hours %], "0.0%"),
+            "Within Budget"
+        )
+)
+ORDER BY [CC EAC vs Budget Hours %] DESC
