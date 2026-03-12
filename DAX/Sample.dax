@@ -6,9 +6,13 @@
 // NOTES:
 //   - All queries use EVALUATE + SUMMARIZECOLUMNS (native Tabular DAX pattern)
 //   - Run in SSMS connected to Analysis Services instance
-//   - Replace 'Budget'[Budget Name] with the actual column name if different
-//     (browse Budget table in Object Explorer to confirm column names)
-//   - SUMMARIZECOLUMNS automatically filters out blank/empty rows
+//   - Row grouping uses Budget[Budget Category] + Budget[Budget Item]
+//     for a two-level breakdown (e.g. Manufacturing Labor > Planning)
+//   - Swap out grouping columns as needed:
+//       'Budget'[Budget Type]      -- highest level (Labor, etc.)
+//       'Budget'[Budget Category]  -- mid level (Manufacturing Labor, etc.)
+//       'Budget'[Budget Item Code] -- item code
+//       'Budget'[Budget Item]      -- most descriptive label
 // =============================================================================
 
 
@@ -18,17 +22,22 @@
 // =============================================================================
 EVALUATE
 SUMMARIZECOLUMNS(
-    'Budget'[Budget],
-    "CC Budget Hours",          [CC Budget Hours],
-    "CC EAC Hours",             [CC EAC Hours],
-    "CC EAC vs Budget Hours",   [CC EAC vs Budget Hours],
-    "CC EAC vs Budget Hours %", [CC EAC vs Budget Hours %],
-    "CC Budget Amount",         [CC Budget Amount],
-    "CC EAC Amount",            [CC EAC Amount],
-    "CC EAC vs Budget Amount",  [CC EAC vs Budget Amount],
-    "CC EAC vs Budget Amount %",[CC EAC vs Budget Amount %]
+    'Budget'[Budget Type],
+    'Budget'[Budget Category],
+    'Budget'[Budget Item],
+    "CC Budget Hours",           [CC Budget Hours],
+    "CC EAC Hours",              [CC EAC Hours],
+    "CC EAC vs Budget Hours",    [CC EAC vs Budget Hours],
+    "CC EAC vs Budget Hours %",  [CC EAC vs Budget Hours %],
+    "CC Budget Amount",          [CC Budget Amount],
+    "CC EAC Amount",             [CC EAC Amount],
+    "CC EAC vs Budget Amount",   [CC EAC vs Budget Amount],
+    "CC EAC vs Budget Amount %", [CC EAC vs Budget Amount %]
 )
-ORDER BY 'Budget'[Budget]
+ORDER BY
+    'Budget'[Budget Type],
+    'Budget'[Budget Category],
+    'Budget'[Budget Item]
 
 
 // =============================================================================
@@ -37,14 +46,19 @@ ORDER BY 'Budget'[Budget]
 // =============================================================================
 EVALUATE
 SUMMARIZECOLUMNS(
-    'Budget'[Budget],
-    "CC Budget Hours",          [CC Budget Hours],
-    "CC ITD Hours",             [CC ITD Hours],
-    "CC ITD % Complete Hours",  [CC ITD % Complete Hours],
-    "CC Remaining Hours",       [CC Remaining Hours],
-    "CC ETC Hours",             [CC ETC Hours]
+    'Budget'[Budget Type],
+    'Budget'[Budget Category],
+    'Budget'[Budget Item],
+    "CC Budget Hours",         [CC Budget Hours],
+    "CC ITD Hours",            [CC ITD Hours],
+    "CC ITD % Complete Hours", [CC ITD % Complete Hours],
+    "CC Remaining Hours",      [CC Remaining Hours],
+    "CC ETC Hours",            [CC ETC Hours]
 )
-ORDER BY 'Budget'[Budget]
+ORDER BY
+    'Budget'[Budget Type],
+    'Budget'[Budget Category],
+    'Budget'[Budget Item]
 
 
 // =============================================================================
@@ -54,7 +68,9 @@ ORDER BY 'Budget'[Budget]
 // =============================================================================
 EVALUATE
 SUMMARIZECOLUMNS(
-    'Budget'[Budget],
+    'Budget'[Budget Type],
+    'Budget'[Budget Category],
+    'Budget'[Budget Item],
     "CC Budget Hours",    [CC Budget Hours],
     "Budget Hours",       [Budget Hours],
     "CC EAC Hours",       [CC EAC Hours],
@@ -62,7 +78,10 @@ SUMMARIZECOLUMNS(
     "CC Remaining Hours", [CC Remaining Hours],
     "Remaining Hours",    [Remaining Hours]
 )
-ORDER BY 'Budget'[Budget]
+ORDER BY
+    'Budget'[Budget Type],
+    'Budget'[Budget Category],
+    'Budget'[Budget Item]
 
 
 // =============================================================================
@@ -72,23 +91,31 @@ ORDER BY 'Budget'[Budget]
 // =============================================================================
 EVALUATE
 SUMMARIZECOLUMNS(
-    'Budget'[Budget],
+    'Budget'[Budget Type],
+    'Budget'[Budget Category],
+    'Budget'[Budget Item],
     "Minutes Charged to Hours", DIVIDE([Minutes Charged], 60),
     "CC ITD Hours",             [CC ITD Hours],
     "CC Remaining Hours",       [CC Remaining Hours]
 )
-ORDER BY 'Budget'[Budget]
+ORDER BY
+    'Budget'[Budget Type],
+    'Budget'[Budget Category],
+    'Budget'[Budget Item]
 
 
 // =============================================================================
 // Query 5: EAC Variance Flag — Over Budget Detection
 // Purpose:  Flags any budget line exceeding 5% EAC variance threshold
+//           Sorted worst offenders first
 //           Adjust the 0.05 threshold to match your program tolerance
 // =============================================================================
 EVALUATE
 ADDCOLUMNS(
     SUMMARIZECOLUMNS(
-        'Budget'[Budget],
+        'Budget'[Budget Type],
+        'Budget'[Budget Category],
+        'Budget'[Budget Item],
         "CC Budget Hours",          [CC Budget Hours],
         "CC EAC Hours",             [CC EAC Hours],
         "CC EAC vs Budget Hours %", [CC EAC vs Budget Hours %]
