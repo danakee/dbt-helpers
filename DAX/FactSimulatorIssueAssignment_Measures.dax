@@ -1,0 +1,33 @@
+{
+  "measures": [
+
+    {
+      "name": "Assignment Count",
+      "expression": "COUNTROWS ( 'Fact Simulator Issue Assignment' )",
+      "formatString": "#,##0",
+      "description": "Number of issue assignments recorded."
+    },
+
+    {
+      "name": "Assignment Duration Days",
+      "expression": "SUM ( 'Fact Simulator Issue Assignment'[AssignmentDurationDays] )",
+      "formatString": "#,##0.00",
+      "description": "Total duration of issue assignments in days."
+    },
+
+    {
+      "name": "Assignment Duration Hours",
+      "expression": "SUM ( 'Fact Simulator Issue Assignment'[AssignmentDurationHours] )",
+      "formatString": "#,##0.00",
+      "description": "Total duration of issue assignments in hours."
+    },
+
+    {
+      "name": "Assignment Duration Minutes",
+      "expression": "SUM ( 'Fact Simulator Issue Assignment'[AssignmentDurationMinutes] )",
+      "formatString": "#,##0.00",
+      "description": "Total duration of issue assignments in minutes."
+    }
+
+  ]
+}
