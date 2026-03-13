@@ -1,0 +1,153 @@
+{
+  "/*": "Drop this 'measures' array into the FactProjectBudget table object in your .bim file.",
+  "/*note": "Set displayFolder, formatString, and description as shown. FSSCTotal is hidden via column property — no measure created.",
+
+  "measures": [
+
+    {
+      "name": "Labor Hours",
+      "expression": "SUM ( 'FactProjectBudget'[LaborHours] )",
+      "formatString": "#,##0",
+      "displayFolder": "Budget Measures",
+      "description": "Total budgeted labor hours across selected projects."
+    },
+
+    {
+      "name": "Labor Amount",
+      "expression": "SUM ( 'FactProjectBudget'[LaborAmount] )",
+      "formatString": "$#,##0.00",
+      "displayFolder": "Budget Measures",
+      "description": "Total budgeted labor cost across selected projects."
+    },
+
+    {
+      "name": "Direct Material",
+      "expression": "SUM ( 'FactProjectBudget'[DirectMaterial] )",
+      "formatString": "$#,##0.00",
+      "displayFolder": "Budget Measures",
+      "description": "Total budgeted direct material cost."
+    },
+
+    {
+      "name": "Aircraft Parts",
+      "expression": "SUM ( 'FactProjectBudget'[AircraftParts] )",
+      "formatString": "$#,##0.00",
+      "displayFolder": "Budget Measures",
+      "description": "Total budgeted aircraft parts cost. Sparse — most projects will be zero."
+    },
+
+    {
+      "name": "Avionics",
+      "expression": "SUM ( 'FactProjectBudget'[Avionics] )",
+      "formatString": "$#,##0.00",
+      "displayFolder": "Budget Measures",
+      "description": "Total budgeted avionics cost. Sparse — most projects will be zero."
+    },
+
+    {
+      "name": "Data",
+      "expression": "SUM ( 'FactProjectBudget'[Data] )",
+      "formatString": "$#,##0.00",
+      "displayFolder": "Budget Measures",
+      "description": "Total budgeted data cost. Sparse — most projects will be zero."
+    },
+
+    {
+      "name": "Other Direct Costs",
+      "expression": "SUM ( 'FactProjectBudget'[OtherDirectCosts] )",
+      "formatString": "$#,##0.00",
+      "displayFolder": "Budget Measures",
+      "description": "Total budgeted other direct costs (ODC)."
+    },
+
+    {
+      "name": "Material Burden",
+      "expression": "SUM ( 'FactProjectBudget'[MaterialBurden] )",
+      "formatString": "$#,##0.00",
+      "displayFolder": "Budget Measures",
+      "description": "Total budgeted material burden."
+    },
+
+    {
+      "name": "Management Reserve",
+      "expression": "SUM ( 'FactProjectBudget'[ManagementReserve] )",
+      "formatString": "$#,##0.00",
+      "displayFolder": "Budget Measures",
+      "description": "Total budgeted management reserve (risk contingency)."
+    },
+
+    {
+      "name": "Marketing Allocation",
+      "expression": "SUM ( 'FactProjectBudget'[MarketingAllocation] )",
+      "formatString": "$#,##0.00",
+      "displayFolder": "Budget Measures",
+      "description": "Total budgeted marketing overhead allocation."
+    },
+
+    {
+      "name": "State Tax",
+      "expression": "SUM ( 'FactProjectBudget'[StateTax] )",
+      "formatString": "$#,##0.00",
+      "displayFolder": "Budget Measures",
+      "description": "Total budgeted state tax."
+    },
+
+    {
+      "name": "FCOM",
+      "expression": "SUM ( 'FactProjectBudget'[FCOM] )",
+      "formatString": "$#,##0.00",
+      "displayFolder": "Budget Measures",
+      "description": "Total budgeted Flight Crew Operating Manual related costs."
+    },
+
+    {
+      "name": "FSS Fee",
+      "expression": "SUM ( 'FactProjectBudget'[FSSFee] )",
+      "formatString": "$#,##0.00",
+      "displayFolder": "Budget Measures",
+      "description": "Total budgeted Flight Simulation Service fee."
+    },
+
+    {
+      "name": "FVS Total",
+      "expression": "SUM ( 'FactProjectBudget'[FVSTotal] )",
+      "formatString": "$#,##0.00",
+      "displayFolder": "Budget Measures",
+      "description": "Flight Visual System factory cost component of the project budget."
+    },
+
+    {
+      "name": "Total Budget",
+      "expression": [
+        "SUM ( 'FactProjectBudget'[LaborAmount] )",
+        "    + SUM ( 'FactProjectBudget'[DirectMaterial] )",
+        "    + SUM ( 'FactProjectBudget'[AircraftParts] )",
+        "    + SUM ( 'FactProjectBudget'[Avionics] )",
+        "    + SUM ( 'FactProjectBudget'[Data] )",
+        "    + SUM ( 'FactProjectBudget'[OtherDirectCosts] )",
+        "    + SUM ( 'FactProjectBudget'[MaterialBurden] )",
+        "    + SUM ( 'FactProjectBudget'[ManagementReserve] )",
+        "    + SUM ( 'FactProjectBudget'[MarketingAllocation] )",
+        "    + SUM ( 'FactProjectBudget'[StateTax] )",
+        "    + SUM ( 'FactProjectBudget'[FCOM] )",
+        "    + SUM ( 'FactProjectBudget'[FSSFee] )",
+        "    + SUM ( 'FactProjectBudget'[FVSTotal] )"
+      ],
+      "formatString": "$#,##0.00",
+      "displayFolder": "Budget Measures",
+      "description": "Total project budget: sum of all labor and non-labor cost components. Excludes FSSCTotal (always zero)."
+    }
+
+  ],
+
+  "/*columnNotes": {
+    "FSSCTotal": "Hide this column in the cube. Flight Simulation Service Center factory cost — always zero in current data. No measure created.",
+    "BudgetPKey": "Degenerate dimension — keep visible, summarizeBy = none.",
+    "QuoteNumber": "Degenerate dimension — keep visible, summarizeBy = none.",
+    "BidDate": "Degenerate dimension — keep visible, summarizeBy = none.",
+    "RevisionDate": "Degenerate dimension — keep visible, summarizeBy = none.",
+    "FactProjectBudgetSKey": "Surrogate key — hide in cube.",
+    "ProjectSKey": "FK — hide in cube.",
+    "CreateDateSKey": "FK — hide in cube."
+  }
+}
