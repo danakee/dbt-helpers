@@ -1,0 +1,85 @@
+{
+  "/*": "Drop each 'measures' array into the corresponding table object in your .bim file.",
+
+  "tables": [
+
+    {
+      "name": "Fact Simulator Configuration",
+      "/*grain": "One row per simulator configuration (coarsest grain). Pre-aggregates component and sub-component counts.",
+      "measures": [
+
+        {
+          "name": "Configuration Count",
+          "expression": "COUNTROWS ( 'Fact Simulator Configuration' )",
+          "formatString": "#,##0",
+          "displayFolder": "Configuration Measures",
+          "description": "Count of simulator configurations. Each row represents one configuration — this is an existence measure."
+        },
+
+        {
+          "name": "Distinct Component Count",
+          "expression": "SUM ( 'Fact Simulator Configuration'[DistinctComponentCount] )",
+          "formatString": "#,##0",
+          "displayFolder": "Configuration Measures",
+          "description": "Pre-aggregated count of distinct components within each simulator configuration."
+        },
+
+        {
+          "name": "Distinct Sub-Component Count",
+          "expression": "SUM ( 'Fact Simulator Configuration'[DistinctSubComponentCount] )",
+          "formatString": "#,##0",
+          "displayFolder": "Configuration Measures",
+          "description": "Pre-aggregated count of distinct sub-components within each simulator configuration."
+        }
+
+      ]
+    },
+
+    {
+      "name": "Fact Simulator Configuration Component",
+      "/*grain": "One row per component within a simulator configuration (mid grain). Pre-aggregates sub-component counts.",
+      "measures": [
+
+        {
+          "name": "Component Count",
+          "expression": "COUNTROWS ( 'Fact Simulator Configuration Component' )",
+          "formatString": "#,##0",
+          "displayFolder": "Component Measures",
+          "description": "Count of components across simulator configurations. Each row represents one component assignment — this is an existence measure."
+        },
+
+        {
+          "name": "Distinct Sub-Component Count",
+          "expression": "SUM ( 'Fact Simulator Configuration Component'[DistinctSubComponentCount] )",
+          "formatString": "#,##0",
+          "displayFolder": "Component Measures",
+          "description": "Pre-aggregated count of distinct sub-components within each component assignment. Sourced from the same physical dimension as Component via role-playing relationship."
+        }
+
+      ]
+    },
+
+    {
+      "name": "Fact Simulator Configuration Sub-Component",
+      "/*grain": "One row per sub-component within a component within a configuration (finest grain). Purely factless — existence only.",
+      "measures": [
+
+        {
+          "name": "Sub-Component Count",
+          "expression": "COUNTROWS ( 'Fact Simulator Configuration Sub-Component' )",
+          "formatString": "#,##0",
+          "displayFolder": "Sub-Component Measures",
+          "description": "Count of sub-component assignments. Each row represents one sub-component existence within a component — this is an existence measure. Sub-components are role-played from the same physical dimension as Component."
+        }
+
+      ]
+    }
+
+  ],
+
+  "/*columnNotes": {
+    "all tables": "Hide all SKey columns. Hide ConfigurationCount, ComponentCount, SubComponentCount source columns — replaced by COUNTROWS measures of the same intent.",
+    "role-playing note": "DimSimulatorConfigurationSubComponent and DimSimulatorConfigurationSubComponentType are role-playing virtual dimensions sourced from the same physical tables as DimSimulatorConfigurationComponent and DimSimulatorConfigurationComponentType respectively.",
+    "Distinct Sub-Component Count": "This measure name exists in both Fact Simulator Configuration and Fact Simulator Configuration Component. They are intentionally distinct measures — different grains, different filter contexts. Power BI will qualify by table name if both appear in the same report."
+  }
+}
