@@ -14,6 +14,7 @@ Usage:
 """
 
 import os
+import base64
 import logging
 import pyodbc
 
@@ -116,14 +117,14 @@ SELECT
 FROM 
     [dbo].[DOCUMENT_HEADERS]       AS dh
     INNER JOIN [dbo].[DOCUMENT_VERSIONS]     AS dv
-        ON  dh.DOCUMENT_ID   = dv.DOCUMENT_ID
+        ON dh.DOCUMENT_ID   = dv.DOCUMENT_ID
     INNER JOIN [dbo].[DOCUMENT_LOCATORS]     AS dl
         ON  dv.DOCUMENT_ID   = dl.DOCUMENT_ID
         AND dv.VERSION        = dl.VERSION
-    LEFT  JOIN [dbo].[DOCUMENT_STORAGE_TYPES_EN] AS st
-        ON  dl.STORAGE_TYPE  = st.STORAGE_TYPE
-    LEFT  JOIN [dbo].[DOCUMENT_USAGE_TYPES]  AS ut
-        ON  dh.USAGE_TYPE_ID = ut.USAGE_TYPE_ID
+    LEFT JOIN [dbo].[DOCUMENT_STORAGE_TYPES_EN] AS st
+        ON dl.STORAGE_TYPE  = st.STORAGE_TYPE
+    LEFT JOIN [dbo].[DOCUMENT_USAGE_TYPES]  AS ut
+        ON dh.USAGE_TYPE_ID = ut.USAGE_TYPE_ID
 WHERE
     dh.DOCUMENT_ID = ?
 ORDER BY
@@ -177,32 +178,147 @@ def _classify_storage(record: dict) -> str:
 
 
 # ─────────────────────────────────────────────
+# Version strategy constants
+# ─────────────────────────────────────────────
+
+VERSION_APPROVED_ONLY = "approved_only"
+"""
+Only materialize the version pointed to by APPROVED_VERSION_ID.
+All other versions are skipped.
+Output: <base_path>/<filename>.<ext>
+Good for: "give me the current live document"
+"""
+
+VERSION_ALL_SUFFIX = "all_suffix"
+"""
+Materialize every version; append _v<N> to the filename stem.
+Output: <base_path>/<filename>_v1.<ext>
+         <base_path>/<filename>_v2.<ext>
+Good for: flat archive where all versions live side by side
+"""
+
+VERSION_ALL_SUBFOLDERS = "all_subfolders"
+"""
+Materialize every version; place each in its own v<N> subfolder.
+Output: <base_path>/v1/<filename>.<ext>
+         <base_path>/v2/<filename>.<ext>
+Good for: keeping version context without cluttering filenames
+"""
+
+
+# ─────────────────────────────────────────────
 # Sub-function 2: Resolve destination path
 # ─────────────────────────────────────────────
 
-def resolve_destination_path(record: dict, base_path: str) -> Path:
+def resolve_destination_path(
+    record: dict,
+    base_path: str,
+    version_strategy: str = VERSION_APPROVED_ONLY,
+) -> Path:
     """
-    Builds the full destination file path:
-        <base_path>/<doc_id>_v<version>_<filename>.<extension>
+    Builds the full destination file path based on the version strategy.
+
+    Strategies:
+        approved_only    → <base_path>/<filename>.<ext>
+        all_suffix       → <base_path>/<filename>_v<N>.<ext>
+        all_subfolders   → <base_path>/v<N>/<filename>.<ext>
 
     Falls back gracefully if filename or extension are missing.
     """
-    doc_id   = record.get("DOCUMENT_ID", "unknown")
-    version  = record.get("VERSION", 0)
-    stem     = record.get("FILE_NAME_WITHOUT_EXTENSION") or record.get("DOCUMENT_NAME") or f"doc_{doc_id}"
-    ext      = record.get("FILE_EXTENSION", "").strip().lstrip(".")
+    doc_id  = record.get("DOCUMENT_ID", "unknown")
+    version = record.get("VERSION", 0)
+    stem    = (
+        record.get("FILE_NAME_WITHOUT_EXTENSION")
+        or record.get("DOCUMENT_NAME")
+        or f"doc_{doc_id}"
+    )
+    ext = record.get("FILE_EXTENSION", "").strip().lstrip(".")
 
-    # Sanitize stem — remove characters that are illegal in file names
+    # Sanitize stem — strip characters illegal in Windows/POSIX filenames
     stem = "".join(c if c not in r'\/:*?"<>|' else "_" for c in str(stem))
-    stem = stem[:150]  # cap length
+    stem = stem[:150]  # cap length to avoid OS path limit issues
 
-    filename = f"{stem}.{ext}" if ext else stem
-    return Path(base_path) / filename
+    if version_strategy == VERSION_ALL_SUFFIX:
+        versioned_stem = f"{stem}_v{version}"
+        filename = f"{versioned_stem}.{ext}" if ext else versioned_stem
+        return Path(base_path) / filename
+
+    elif version_strategy == VERSION_ALL_SUBFOLDERS:
+        filename = f"{stem}.{ext}" if ext else stem
+        return Path(base_path) / f"v{version}" / filename
+
+    else:
+        # approved_only — no version discriminator in path
+        filename = f"{stem}.{ext}" if ext else stem
+        return Path(base_path) / filename
 
 
 # ─────────────────────────────────────────────
 # Sub-function 3: Get raw (possibly encrypted) bytes
 # ─────────────────────────────────────────────
+
+
+def _decode_column_content(raw, column_name: str) -> bytes:
+    """
+    Handles the two ways pyodbc may return DB column content:
+
+      str  → SQL text column (DOCUMENT_FILE): always Base64-encoded
+               because text columns cannot store raw binary.
+               Decode Base64 to get the real file bytes.
+
+      bytes → SQL image column (DOCUMENT_CONTENT): may be raw bytes
+               from older Prism versions, or Base64 string stored as
+               image in newer versions. Try Base64 first; fall back
+               to raw bytes if decode fails or result looks wrong.
+
+    Logs the magic bytes so we can verify the file type is correct.
+    """
+    if isinstance(raw, str):
+        try:
+            decoded = base64.b64decode(raw)
+            log.debug(
+                "  %s Base64 decoded: %d chars -> %d bytes  magic=%s",
+                column_name, len(raw), len(decoded), decoded[:4].hex(),
+            )
+            return decoded
+        except Exception as exc:
+            log.warning(
+                "  %s Base64 decode failed (%s) — falling back to latin-1 bytes",
+                column_name, exc,
+            )
+            return raw.encode("latin-1")
+
+    # bytes path (image column)
+    try:
+        decoded = base64.b64decode(raw)
+        # Sanity check: decoded result should be shorter and look like a real file.
+        # Real files start with known magic bytes; Base64 content does not.
+        magic = decoded[:4]
+        known_magic = [
+            b"\xd0\xcf\x11\xe0",  # OLE2  .doc .xls .ppt
+            b"PK\x03\x04",          # ZIP   .docx .xlsx .pptx
+            b"%PDF",                  # PDF
+            b"\xff\xd8\xff",       # JPEG
+            b"\x89PNG",              # PNG
+            b"<htm",                  # HTML
+            b"<HTM",
+        ]
+        if any(magic.startswith(m) for m in known_magic):
+            log.debug(
+                "  %s image col Base64 decoded: %d -> %d bytes  magic=%s",
+                column_name, len(raw), len(decoded), magic.hex(),
+            )
+            return decoded
+    except Exception:
+        pass
+
+    # Raw bytes — log magic for diagnostics
+    log.debug(
+        "  %s image col raw bytes: %d bytes  magic=%s",
+        column_name, len(raw), raw[:4].hex() if len(raw) >= 4 else raw.hex(),
+    )
+    return bytes(raw)
+
 
 def get_file_bytes(record: dict) -> Optional[bytes]:
     """
@@ -232,15 +348,18 @@ def get_file_bytes(record: dict) -> Optional[bytes]:
         if raw is None:
             log.warning("  DOCUMENT_FILE is None for pattern '%s'", pattern)
             return None
-        # pyodbc returns DB text/image columns as str or bytes depending on driver
-        return raw if isinstance(raw, bytes) else raw.encode("latin-1")
+        # DOCUMENT_FILE is a SQL text column — pyodbc returns it as a string.
+        # Content is Base64-encoded before storage (text column cannot hold raw binary).
+        return _decode_column_content(raw, "DOCUMENT_FILE")
 
     if pattern == "db_content_blowfish":
         raw = record.get("DOCUMENT_CONTENT")
         if raw is None:
             log.warning("  DOCUMENT_CONTENT is None")
             return None
-        return raw if isinstance(raw, bytes) else bytes(raw)
+        # DOCUMENT_CONTENT is a SQL image column — may be raw bytes or Base64 string
+        # depending on how the Prism app version stored it.
+        return _decode_column_content(raw, "DOCUMENT_CONTENT")
 
     if pattern == "disk_blowfish":
         file_path = record.get("PATH_OR_TABLE") or record.get("PHYSICAL_LOCATION")
@@ -373,24 +492,36 @@ def build_result(
 # Top-level orchestrator
 # ─────────────────────────────────────────────
 
-def materialize_document(document_id: int, destination_path: str) -> list[dict]:
+def materialize_document(
+    document_id: int,
+    destination_path: str,
+    version_strategy: str = VERSION_APPROVED_ONLY,
+) -> list[dict]:
     """
     Top-level entry point.
 
-    Fetches all locator rows for document_id, then for each row:
+    Fetches all locator rows for document_id, filters by version
+    strategy, then for each qualifying row:
       1. Resolves the destination file path
       2. Gets the raw bytes (DB blob or disk file)
       3. Decrypts if BLOWFISH key present
       4. Writes to destination_path
 
     Args:
-        document_id:      DOCUMENT_HEADERS.DOCUMENT_ID
-        destination_path: Base folder to write files into
+        document_id:       DOCUMENT_HEADERS.DOCUMENT_ID
+        destination_path:  Base folder to write files into
+        version_strategy:  One of:
+                             VERSION_APPROVED_ONLY  (default)
+                             VERSION_ALL_SUFFIX
+                             VERSION_ALL_SUBFOLDERS
 
     Returns:
         List of result dicts — one per locator row processed.
     """
-    log.info("── Materializing DOCUMENT_ID %s ──", document_id)
+    log.info(
+        "── Materializing DOCUMENT_ID %s  [strategy: %s] ──",
+        document_id, version_strategy,
+    )
     results = []
 
     records = get_document_info(document_id)
@@ -398,9 +529,43 @@ def materialize_document(document_id: int, destination_path: str) -> list[dict]:
         log.warning("No records found for DOCUMENT_ID %s", document_id)
         return results
 
+    # ── Apply version filter for approved_only strategy ──
+    if version_strategy == VERSION_APPROVED_ONLY:
+        approved_version_id = records[0].get("APPROVED_VERSION_ID")
+        if approved_version_id is None:
+            log.warning(
+                "  APPROVED_VERSION_ID is NULL for DOCUMENT_ID %s "
+                "— falling back to latest version",
+                document_id,
+            )
+            # Fall back to the highest version number available
+            latest = max(r["VERSION"] for r in records)
+            records = [r for r in records if r["VERSION"] == latest]
+        else:
+            records = [r for r in records if r["VERSION"] == approved_version_id]
+            if not records:
+                log.warning(
+                    "  No locator rows match APPROVED_VERSION_ID %s "
+                    "for DOCUMENT_ID %s",
+                    approved_version_id, document_id,
+                )
+                return results
+
+        log.info(
+            "  approved_only: materializing version %s (%d locator row(s))",
+            records[0]["VERSION"] if records else "?",
+            len(records),
+        )
+
+    else:
+        log.info(
+            "  %s: materializing %d locator row(s) across all versions",
+            version_strategy, len(records),
+        )
+
     for record in records:
         pattern = record.get("storage_pattern")
-        dest    = resolve_destination_path(record, destination_path)
+        dest    = resolve_destination_path(record, destination_path, version_strategy)
 
         log.info(
             "  Version %s | Pattern: %-22s | File: %s",
@@ -464,13 +629,20 @@ if __name__ == "__main__":
     import sys
 
     if len(sys.argv) < 3:
-        print("Usage: python document_materializer.py <document_id> <destination_path>")
-        print("Example: python document_materializer.py 12345 C:/output/documents")
+        print("Usage: python document_materializer.py <document_id> <destination_path> [strategy]")
+        print("  strategy options: approved_only (default)  |  all_suffix  |  all_subfolders")
+        print("  Example: python document_materializer.py 12345 C:/output approved_only")
         sys.exit(1)
 
-    doc_id  = int(sys.argv[1])
-    dest    = sys.argv[2]
+    doc_id   = int(sys.argv[1])
+    dest     = sys.argv[2]
+    strategy = sys.argv[3] if len(sys.argv) > 3 else VERSION_APPROVED_ONLY
 
-    results = materialize_document(doc_id, dest)
+    valid = {VERSION_APPROVED_ONLY, VERSION_ALL_SUFFIX, VERSION_ALL_SUBFOLDERS}
+    if strategy not in valid:
+        print(f"Unknown strategy '{strategy}'. Choose from: {', '.join(valid)}")
+        sys.exit(1)
+
+    results = materialize_document(doc_id, dest, version_strategy=strategy)
     print("\n── Results ──")
     print(json.dumps(results, indent=2, default=str))
