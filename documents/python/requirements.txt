@@ -1,0 +1,4 @@
+pyodbc
+pycryptodome
+python-dotenv
+tqdm
