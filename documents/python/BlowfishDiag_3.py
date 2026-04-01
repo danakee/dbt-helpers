@@ -181,52 +181,23 @@ def run(document_id: str):
 
     # ── Build key variants ───────────────────────────────────────
     import hashlib
-    # ── Analyse key structure ────────────────────────────────────
-    PREFIX = "@ "
-    SUFFIX = "2>+<)*45CY$"
-    ks = key_stripped if isinstance(key_stripped, str) else key_stripped.decode("utf-8")
-
-    print(f"  Starts with '@ '        : {ks.startswith(PREFIX)}")
-    print(f"  Ends with '2>+<)*45CY$' : {ks.endswith(SUFFIX)}")
-
-    middle = None
-    if ks.startswith(PREFIX) and ks.endswith(SUFFIX):
-        middle = ks[len(PREFIX): len(ks) - len(SUFFIX)]
-        print(f"  Middle ({len(middle)} chars)      : {repr(middle)}")
-    print()
-
-    keys_to_try = [("full stripped key", key_as_bytes)]
+    keys_to_try = [("stripped UTF-8", key_as_bytes)]
 
     if key_b64_decoded and 4 <= len(key_b64_decoded) <= 56:
         keys_to_try.append(("Base64-decoded key", key_b64_decoded))
 
-    # ── Structure-based key extractions ──────────────────────────
-    if middle:
-        keys_to_try.append(("middle 30 chars",
-                             middle.encode("utf-8")))
-        keys_to_try.append(("suffix only (2>+<)*45CY$)",
-                             SUFFIX.encode("utf-8")))
-        keys_to_try.append(("prefix+middle (no suffix)",
-                             (PREFIX + middle).encode("utf-8")))
-        keys_to_try.append(("middle+suffix (no prefix)",
-                             (middle + SUFFIX).encode("utf-8")))
-
-    # ── Hash-based key transforms ─────────────────────────────────
+    # MD5 hash of the stripped key (common in older Java/.NET Blowfish impls)
     md5_key = hashlib.md5(key_as_bytes).digest()
-    keys_to_try.append(("MD5(full stripped)", md5_key))
+    keys_to_try.append(("MD5(stripped key)", md5_key))
 
-    if middle:
-        md5_middle = hashlib.md5(middle.encode("utf-8")).digest()
-        keys_to_try.append(("MD5(middle 30)", md5_middle))
-
-    md5_raw_key = hashlib.md5(
-        key_raw.encode("utf-8") if isinstance(key_raw, str) else key_raw
-    ).digest()
+    # MD5 of the raw key including whitespace
+    md5_raw_key = hashlib.md5(key_raw.encode("utf-8") if isinstance(key_raw, str) else key_raw).digest()
     if md5_raw_key != md5_key:
-        keys_to_try.append(("MD5(raw key+newline)", md5_raw_key))
+        keys_to_try.append(("MD5(raw key)", md5_raw_key))
 
+    # SHA1 of the stripped key (less common but worth trying)
     sha1_key = hashlib.sha1(key_as_bytes).digest()[:56]
-    keys_to_try.append(("SHA1(full stripped)[:56]", sha1_key))
+    keys_to_try.append(("SHA1(stripped key)[:56]", sha1_key))
 
     # ── Build content variants ────────────────────────────────────
     contents_to_try = [("raw content", content_raw)]
