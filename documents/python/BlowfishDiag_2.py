@@ -255,75 +255,6 @@ def run(document_id: str):
                 except Exception as e:
                     print(f"  [ERR ] CBC no-pad + {key_label}: {e}")
 
-    # ── Attempt OFB and CFB modes ────────────────────────────────
-    if not winner:
-        print()
-        print("  Trying OFB and CFB modes...")
-        for key_label, key_bytes_val in keys_to_try:
-            for content_label, content_bytes in contents_to_try:
-                for mode_name, mode_const in [("OFB", Blowfish.MODE_OFB),
-                                              ("CFB", Blowfish.MODE_CFB)]:
-                    try:
-                        iv = content_bytes[:8]
-                        c  = Blowfish.new(key_bytes_val, mode_const, iv)
-                        result = c.decrypt(content_bytes[8:])
-                        magic = identify_magic(result)
-                        status = "[PASS]" if "unknown" not in magic else "[FAIL]"
-                        print(f"  {status} {mode_name} + {key_label} + {content_label}"
-                              f"  (first4={result[:4].hex().upper()})  {magic if status=='[PASS]' else ''}")
-                        if "unknown" not in magic and winner is None:
-                            winner = (f"{mode_name} + {key_label}", result)
-                    except Exception as e:
-                        print(f"  [ERR ] {mode_name} + {key_label}: {e}")
-
-    # ── Attempt content with leading byte offsets stripped ───────
-    if not winner:
-        print()
-        print("  Trying leading-byte offset variants (8, 16, 24 bytes stripped)...")
-        for key_label, key_bytes_val in keys_to_try[:2]:  # only top 2 keys
-            for offset in [8, 16, 24]:
-                trimmed = content_raw[offset:]
-                if len(trimmed) % 8 != 0:
-                    continue
-                for mode_name, mode_const, use_iv in [
-                    ("ECB", Blowfish.MODE_ECB, False),
-                    ("CBC", Blowfish.MODE_CBC, True),
-                ]:
-                    try:
-                        if use_iv:
-                            iv = trimmed[:8]
-                            c  = Blowfish.new(key_bytes_val, mode_const, iv)
-                            result = c.decrypt(trimmed[8:])
-                        else:
-                            c  = Blowfish.new(key_bytes_val, mode_const)
-                            result = c.decrypt(trimmed)
-                        try:
-                            result_unpadded = unpad(result, Blowfish.block_size)
-                        except Exception:
-                            result_unpadded = result.rstrip(b"\x00")
-                        magic = identify_magic(result_unpadded)
-                        status = "[PASS]" if "unknown" not in magic else "[FAIL]"
-                        print(f"  {status} offset={offset} {mode_name} + {key_label}"
-                              f"  (first4={result_unpadded[:4].hex().upper()})  "
-                              f"{magic if status=='[PASS]' else ''}")
-                        if "unknown" not in magic and winner is None:
-                            winner = (f"offset={offset} {mode_name} + {key_label}",
-                                      result_unpadded)
-                    except Exception as e:
-                        print(f"  [ERR ] offset={offset} {mode_name} + {key_label}: {e}")
-
-    # ── Show all first4 results in a summary table ────────────────
-    print()
-    print("  First-4-byte summary of all no-pad ECB attempts:")
-    print("  (Looking for D0CF=OLE2/xls, 504B=zip/xlsx, 2550=PDF)")
-    for key_label, key_bytes_val in keys_to_try:
-        try:
-            c = Blowfish.new(key_bytes_val, Blowfish.MODE_ECB)
-            result = c.decrypt(content_raw)
-            print(f"    {key_label[:35]:<35} → {result[:4].hex().upper()}  {identify_magic(result)}")
-        except Exception as e:
-            print(f"    {key_label[:35]:<35} → ERR: {e}")
-
     print()
     if winner:
         label, result = winner
@@ -337,15 +268,6 @@ def run(document_id: str):
         print("  2. Check if content needs trimming (e.g. leading header bytes)")
         print("  3. Check if a different cipher mode is used (OFB, CFB, CTR)")
         print("  4. Inspect the Prism application source or config for cipher details")
-        print()
-        print("  Key diagnostic — run this in SQL Server to see if other documents")
-        print("  with the same DOCUMENT_KEY_TYPE decrypt correctly:")
-        print("  SELECT TOP 5 DOCUMENT_ID, DATALENGTH(DOCUMENT_KEY),")
-        print("    LEFT(DOCUMENT_KEY, 10), DATALENGTH(DOCUMENT_CONTENT)")
-        print("  FROM [dbo].[DOCUMENT_LOCATORS]")
-        print("  WHERE DOCUMENT_KEY_TYPE = 'BLOWFISH'")
-        print("    AND DOCUMENT_CONTENT IS NOT NULL")
-        print("  ORDER BY NEWID()")
 
     print(f"\n{'='*60}\n")
 
