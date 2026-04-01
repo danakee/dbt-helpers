@@ -179,81 +179,21 @@ def run(document_id: str):
     # ── Decryption attempts ───────────────────────────────────────
     print(f"\n── Decryption attempts ─────────────────────────────────")
 
-    # ── Build key variants ───────────────────────────────────────
-    import hashlib
     keys_to_try = [("stripped UTF-8", key_as_bytes)]
-
     if key_b64_decoded and 4 <= len(key_b64_decoded) <= 56:
         keys_to_try.append(("Base64-decoded key", key_b64_decoded))
 
-    # MD5 hash of the stripped key (common in older Java/.NET Blowfish impls)
-    md5_key = hashlib.md5(key_as_bytes).digest()
-    keys_to_try.append(("MD5(stripped key)", md5_key))
-
-    # MD5 of the raw key including whitespace
-    md5_raw_key = hashlib.md5(key_raw.encode("utf-8") if isinstance(key_raw, str) else key_raw).digest()
-    if md5_raw_key != md5_key:
-        keys_to_try.append(("MD5(raw key)", md5_raw_key))
-
-    # SHA1 of the stripped key (less common but worth trying)
-    sha1_key = hashlib.sha1(key_as_bytes).digest()[:56]
-    keys_to_try.append(("SHA1(stripped key)[:56]", sha1_key))
-
-    # ── Build content variants ────────────────────────────────────
     contents_to_try = [("raw content", content_raw)]
     if content_b64_decoded and len(content_b64_decoded) % 8 == 0:
         contents_to_try.append(("Base64-decoded content", content_b64_decoded))
 
-    # ── Attempt standard padding modes ───────────────────────────
     winner = None
-    for key_label, key_bytes_val in keys_to_try:
+    for key_label, key_bytes in keys_to_try:
         for content_label, content_bytes in contents_to_try:
             label = f"{key_label} + {content_label}"
-            result = try_decrypt(label, content_bytes, key_bytes_val)
+            result = try_decrypt(label, content_bytes, key_bytes)
             if result and winner is None:
                 winner = (label, result)
-
-    # ── Attempt no-padding / zero-padding (if still failing) ─────
-    if not winner:
-        print()
-        print("  Trying no-padding / zero-padding variants...")
-        for key_label, key_bytes_val in keys_to_try:
-            for content_label, content_bytes in contents_to_try:
-                # ECB no padding
-                try:
-                    c = Blowfish.new(key_bytes_val, Blowfish.MODE_ECB)
-                    result = c.decrypt(content_bytes)
-                    # Strip trailing null bytes (zero padding)
-                    result_stripped = result.rstrip(b"\x00")
-                    magic = identify_magic(result_stripped)
-                    if "unknown" not in magic:
-                        label = f"ECB no-pad zero-strip + {key_label} + {content_label}"
-                        print(f"  [PASS] {label}  →  {len(result_stripped)} bytes  {magic}")
-                        if winner is None:
-                            winner = (label, result_stripped)
-                    else:
-                        print(f"  [FAIL] ECB no-pad + {key_label} + {content_label}"
-                              f"  (first4={result[:4].hex().upper()})")
-                except Exception as e:
-                    print(f"  [ERR ] ECB no-pad + {key_label}: {e}")
-
-                # CBC no padding (first 8 bytes as IV)
-                try:
-                    iv = content_bytes[:8]
-                    c  = Blowfish.new(key_bytes_val, Blowfish.MODE_CBC, iv)
-                    result = c.decrypt(content_bytes[8:])
-                    result_stripped = result.rstrip(b"\x00")
-                    magic = identify_magic(result_stripped)
-                    if "unknown" not in magic:
-                        label = f"CBC no-pad zero-strip + {key_label} + {content_label}"
-                        print(f"  [PASS] {label}  →  {len(result_stripped)} bytes  {magic}")
-                        if winner is None:
-                            winner = (label, result_stripped)
-                    else:
-                        print(f"  [FAIL] CBC no-pad + {key_label} + {content_label}"
-                              f"  (first4={result[:4].hex().upper()})")
-                except Exception as e:
-                    print(f"  [ERR ] CBC no-pad + {key_label}: {e}")
 
     print()
     if winner:
